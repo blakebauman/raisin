@@ -139,6 +139,16 @@ data "aws_iam_policy_document" "app" {
       "ses:GetEmailIdentity",
       "ses:CreateEmailIdentity",
       "ses:DeleteEmailIdentity",
+      "ses:CreateConfigurationSet",
+      "ses:DeleteConfigurationSet",
+      "ses:GetConfigurationSet",
+      "ses:PutConfigurationSetEventDestination",
+      "ses:CreateDedicatedIpPool",
+      "ses:DeleteDedicatedIpPool",
+      "ses:GetDedicatedIp",
+      "ses:GetDedicatedIps",
+      "ses:PutDedicatedIpInPool",
+      "ses:PutConfigurationSetDeliveryOptions",
     ]
     resources = ["*"]
   }

@@ -35,6 +35,7 @@ class Raisin:
         self.suppressions = Suppressions(self)
         self.automations = Automations(self)
         self.ip_pools = IPPools(self)
+        self.oauth = OAuth(self)
 
     def request(self, method: str, path: str, body: Any = None) -> Any:
         data = None if body is None else json.dumps(body).encode("utf-8")
@@ -96,6 +97,18 @@ class Emails:
 
     def attachments(self, email_id: str) -> dict:
         return self._c.request("GET", f"/emails/{email_id}/attachments")
+
+    def list_received(self) -> dict:
+        return self._c.request("GET", "/emails/received")
+
+    def get_received(self, id: str) -> dict:
+        return self._c.request("GET", f"/emails/received/{id}")
+
+    def received_attachments(self, id: str) -> dict:
+        return self._c.request("GET", f"/emails/received/{id}/attachments")
+
+    def get_received_attachment(self, id: str, attachment_id: str) -> dict:
+        return self._c.request("GET", f"/emails/received/{id}/attachments/{attachment_id}")
 
 
 class Domains:
@@ -236,6 +249,9 @@ class Automations:
     def enable(self, id: str, enabled: bool) -> dict:
         return self._c.request("PATCH", f"/automations/{id}", {"enabled": enabled})
 
+    def runs(self, id: str) -> dict:
+        return self._c.request("GET", f"/automations/{id}/runs")
+
     def remove(self, id: str) -> dict:
         return self._c.request("DELETE", f"/automations/{id}")
 
@@ -250,6 +266,9 @@ class IPPools:
     def list(self) -> dict:
         return self._c.request("GET", "/ip-pools")
 
+    def get(self, id: str) -> dict:
+        return self._c.request("GET", f"/ip-pools/{id}")
+
     def assign_domain(self, pool_id: str, domain_id: str) -> dict:
         return self._c.request("POST", f"/ip-pools/{pool_id}/assign-domain", {"domain_id": domain_id})
 
@@ -259,8 +278,55 @@ class IPPools:
     def resume(self, id: str) -> dict:
         return self._c.request("POST", f"/ip-pools/{id}/resume", {})
 
+    def warmup_tick(self, id: str) -> dict:
+        return self._c.request("POST", f"/ip-pools/{id}/warmup/tick", {})
+
     def remove(self, id: str) -> dict:
         return self._c.request("DELETE", f"/ip-pools/{id}")
+
+
+class OAuth:
+    def __init__(self, client: Raisin):
+        self._c = client
+
+    def create_app(self, name: str, redirect_uris: list[str], scopes: Optional[list[str]] = None) -> dict:
+        body: dict[str, Any] = {"name": name, "redirect_uris": redirect_uris}
+        if scopes is not None:
+            body["scopes"] = scopes
+        return self._c.request("POST", "/oauth/apps", body)
+
+    def list_apps(self) -> dict:
+        return self._c.request("GET", "/oauth/apps")
+
+    def remove_app(self, id: str) -> dict:
+        return self._c.request("DELETE", f"/oauth/apps/{id}")
+
+    def token(self, **body: Any) -> dict:
+        """Exchange authorization_code or refresh_token (no API key)."""
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            self._c.base_url + "/oauth/token",
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "raisin-python/0.1.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as res:
+                return json.loads(res.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8")
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                payload = {"name": "error", "message": raw, "statusCode": e.code}
+            raise RaisinError(
+                payload.get("name", "error"),
+                payload.get("message", raw),
+                payload.get("statusCode", e.code),
+            ) from e
 
 
 def verify_webhook_signature(

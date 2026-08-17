@@ -63,6 +63,7 @@ export class Raisin {
   readonly suppressions: Suppressions;
   readonly automations: Automations;
   readonly ipPools: IPPools;
+  readonly oauth: OAuth;
 
   constructor(apiKeyOrOpts: string | RaisinOptions) {
     if (typeof apiKeyOrOpts === "string") {
@@ -82,6 +83,7 @@ export class Raisin {
     this.suppressions = new Suppressions(this);
     this.automations = new Automations(this);
     this.ipPools = new IPPools(this);
+    this.oauth = new OAuth(this);
   }
 
   async request<T>(
@@ -195,6 +197,22 @@ class Emails {
       text: p.text,
     }));
     return this.client.request<{ data: Email[] }>("POST", "/emails/batch", body);
+  }
+
+  listReceived() {
+    return this.client.request("GET", "/emails/received");
+  }
+  getReceived(id: string) {
+    return this.client.request("GET", `/emails/received/${id}`);
+  }
+  receivedAttachments(id: string) {
+    return this.client.request<{ data: AttachmentMeta[] }>("GET", `/emails/received/${id}/attachments`);
+  }
+  getReceivedAttachment(id: string, attachmentId: string) {
+    return this.client.request<AttachmentMeta & { content: string }>(
+      "GET",
+      `/emails/received/${id}/attachments/${attachmentId}`
+    );
   }
 }
 
@@ -430,8 +448,61 @@ class IPPools {
   resume(id: string) {
     return this.client.request("POST", `/ip-pools/${id}/resume`);
   }
+  warmupTick(id: string) {
+    return this.client.request("POST", `/ip-pools/${id}/warmup/tick`);
+  }
   remove(id: string) {
     return this.client.request("DELETE", `/ip-pools/${id}`);
+  }
+}
+
+class OAuth {
+  constructor(private client: Raisin) {}
+  createApp(body: { name: string; redirect_uris: string[]; scopes?: string[] }) {
+    return this.client.request("POST", "/oauth/apps", body);
+  }
+  listApps() {
+    return this.client.request("GET", "/oauth/apps");
+  }
+  deleteApp(id: string) {
+    return this.client.request("DELETE", `/oauth/apps/${id}`);
+  }
+  /** Exchange authorization code or refresh token (no API key). */
+  async token(body: {
+    grant_type: "authorization_code" | "refresh_token";
+    client_id: string;
+    client_secret: string;
+    code?: string;
+    redirect_uri?: string;
+    refresh_token?: string;
+  }) {
+    try {
+      const res = await fetch(`${this.client.baseUrl}/oauth/token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "raisin-node/0.1.0",
+        },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          data: null,
+          error: {
+            name: (json as any).name ?? "error",
+            message: (json as any).message ?? res.statusText,
+            statusCode: res.status,
+          },
+        };
+      }
+      return { data: json, error: null };
+    } catch (e: any) {
+      return {
+        data: null,
+        error: { name: "network_error", message: e?.message ?? "network error", statusCode: 0 },
+      };
+    }
   }
 }
 

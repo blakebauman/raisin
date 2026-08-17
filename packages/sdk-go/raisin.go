@@ -32,6 +32,7 @@ type Client struct {
 	Suppressions *SuppressionsService
 	Automations  *AutomationsService
 	IPPools      *IPPoolsService
+	OAuth        *OAuthService
 }
 
 func NewClient(apiKey string) *Client {
@@ -50,6 +51,7 @@ func NewClient(apiKey string) *Client {
 	c.Suppressions = &SuppressionsService{c: c}
 	c.Automations = &AutomationsService{c: c}
 	c.IPPools = &IPPoolsService{c: c}
+	c.OAuth = &OAuthService{c: c}
 	return c
 }
 
@@ -156,6 +158,38 @@ func (s *EmailsService) List(ctx context.Context) (map[string]any, error) {
 
 func (s *EmailsService) Cancel(ctx context.Context, id string) error {
 	return s.c.do(ctx, http.MethodPost, "/emails/"+id+"/cancel", map[string]any{}, nil)
+}
+
+func (s *EmailsService) ListReceived(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/emails/received", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *EmailsService) GetReceived(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/emails/received/"+id, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *EmailsService) ListReceivedAttachments(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/emails/received/"+id+"/attachments", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *EmailsService) GetReceivedAttachment(ctx context.Context, id, attachmentID string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/emails/received/"+id+"/attachments/"+attachmentID, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 type DomainsService struct{ c *Client }
@@ -415,6 +449,18 @@ func (s *AutomationsService) Enable(ctx context.Context, id string, enabled bool
 	return out, nil
 }
 
+func (s *AutomationsService) ListRuns(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/automations/"+id+"/runs", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *AutomationsService) Delete(ctx context.Context, id string) error {
+	return s.c.do(ctx, http.MethodDelete, "/automations/"+id, nil, nil)
+}
+
 type IPPoolsService struct{ c *Client }
 
 func (s *IPPoolsService) Create(ctx context.Context, name, region string) (map[string]any, error) {
@@ -433,8 +479,94 @@ func (s *IPPoolsService) List(ctx context.Context) (map[string]any, error) {
 	return out, nil
 }
 
+func (s *IPPoolsService) Get(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/ip-pools/"+id, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *IPPoolsService) AssignDomain(ctx context.Context, poolID, domainID string) error {
 	return s.c.do(ctx, http.MethodPost, "/ip-pools/"+poolID+"/assign-domain", map[string]string{"domain_id": domainID}, nil)
+}
+
+func (s *IPPoolsService) Pause(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/ip-pools/"+id+"/pause", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *IPPoolsService) Resume(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/ip-pools/"+id+"/resume", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *IPPoolsService) WarmupTick(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/ip-pools/"+id+"/warmup/tick", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *IPPoolsService) Delete(ctx context.Context, id string) error {
+	return s.c.do(ctx, http.MethodDelete, "/ip-pools/"+id, nil, nil)
+}
+
+type OAuthService struct{ c *Client }
+
+func (s *OAuthService) CreateApp(ctx context.Context, body map[string]any) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/oauth/apps", body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *OAuthService) ListApps(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/oauth/apps", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *OAuthService) DeleteApp(ctx context.Context, id string) error {
+	return s.c.do(ctx, http.MethodDelete, "/oauth/apps/"+id, nil, nil)
+}
+
+// Token exchanges an authorization code or refresh token (no API key required).
+func (s *OAuthService) Token(ctx context.Context, body map[string]any) (map[string]any, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(s.c.BaseURL, "/")+"/oauth/token", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "raisin-go/0.1.0")
+	res, err := s.c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	if res.StatusCode >= 300 {
+		return nil, fmt.Errorf("oauth token: %s", string(raw))
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // VerifyWebhookSignature checks Raisin-Signature: t=<unix>,v1=<hex>
