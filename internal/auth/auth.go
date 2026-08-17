@@ -36,6 +36,7 @@ type ContextKey string
 
 const TeamKey ContextKey = "team"
 const APIKeyCtxKey ContextKey = "api_key"
+const OAuthScopesKey ContextKey = "oauth_scopes"
 
 func HashKey(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
@@ -131,4 +132,24 @@ func LoadTeam(ctx context.Context, pool *db.Pool, teamID uuid.UUID) (*Team, erro
 func TeamFromContext(ctx context.Context) *Team {
 	t, _ := ctx.Value(TeamKey).(*Team)
 	return t
+}
+
+func ScopesFromContext(ctx context.Context) []string {
+	s, _ := ctx.Value(OAuthScopesKey).([]string)
+	return s
+}
+
+// HasScope returns true when no OAuth scopes are bound (API key / console JWT)
+// or when the required scope is present.
+func HasScope(ctx context.Context, required string) bool {
+	scopes := ScopesFromContext(ctx)
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, s := range scopes {
+		if s == required || s == "*" || s == "full_access" {
+			return true
+		}
+	}
+	return false
 }

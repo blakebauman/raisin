@@ -6,9 +6,10 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/snsverify"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/blakebauman/raisin/internal/apierr"
 )
 
 func (s *Server) listAttachments(w http.ResponseWriter, r *http.Request) {
@@ -66,16 +67,12 @@ func (s *Server) inboundSES(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, apierr.Validation("invalid body"))
 		return
 	}
-	var envelope struct {
-		Type             string `json:"Type"`
-		SubscribeURL     string `json:"SubscribeURL"`
-		Message          string `json:"Message"`
-		MessageID        string `json:"MessageId"`
-		Token            string `json:"Token"`
-		TopicArn         string `json:"TopicArn"`
-		SigningCertURL   string `json:"SigningCertURL"`
-	}
+	var envelope snsverify.Envelope
 	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Type != "" {
+		if err := snsverify.Verify(envelope); err != nil {
+			apierr.Write(w, apierr.New(403, "invalid_sns_signature", err.Error()))
+			return
+		}
 		if envelope.Type == "SubscriptionConfirmation" && envelope.SubscribeURL != "" {
 			resp, err := http.Get(envelope.SubscribeURL)
 			if err == nil {

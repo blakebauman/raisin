@@ -390,6 +390,25 @@ func (s *Server) deleteOAuthApp(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteJSON(w, 200, map[string]bool{"deleted": true})
 }
 
+func (s *Server) oauthPublicApp(w http.ResponseWriter, r *http.Request) {
+	clientID := r.URL.Query().Get("client_id")
+	if clientID == "" {
+		apierr.Write(w, apierr.Validation("client_id required"))
+		return
+	}
+	app, err := s.OAuth.PublicApp(r.Context(), clientID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, 200, map[string]any{
+		"name":          app.Name,
+		"client_id":     app.ClientID,
+		"redirect_uris": app.RedirectURIs,
+		"scopes":        app.Scopes,
+	})
+}
+
 func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	team := teamOrWrite(w, r)
 	if team == nil {

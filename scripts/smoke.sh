@@ -147,9 +147,34 @@ curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/domains/regi
 echo "== oauth app =="
 OA=$(curl -sf -X POST "$API/oauth/apps" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
-  -d "{\"name\":\"smoke-$STAMP\",\"redirect_uris\":[\"http://localhost:9999/cb\"]}")
+  -d "{\"name\":\"smoke-$STAMP\",\"redirect_uris\":[\"http://localhost:9999/cb\"],\"scopes\":[\"emails:read\",\"emails:send\"]}")
 echo "$OA" | grep -q client_id
+CLIENT_ID=$(echo "$OA" | python3 -c "import sys,json; print(json.load(sys.stdin)['client_id'])")
+CLIENT_SECRET=$(echo "$OA" | python3 -c "import sys,json; print(json.load(sys.stdin)['client_secret'])")
 OA_ID=$(echo "$OA" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf "$API/oauth/apps/public?client_id=$CLIENT_ID" -H "User-Agent: $UA" | grep -q "$CLIENT_ID"
+
+# Authorize with console provision token
+PROV=$(curl -sf -X POST "$API/console/provision" \
+  -H "Content-Type: application/json" -H "User-Agent: $UA" \
+  -d "{\"secret\":\"${JWT_SECRET:-dev-jwt-secret-change-me-in-production}\",\"email\":\"oauth-$STAMP@raisin.run\",\"name\":\"OAuth Smoke\"}")
+TEAM_TOK=$(echo "$PROV" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+CODE=$(curl -sf -X POST "$API/oauth/authorize" \
+  -H "X-Team-Token: $TEAM_TOK" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"redirect_uri\":\"http://localhost:9999/cb\",\"scopes\":[\"emails:read\"]}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['code'])")
+TOK=$(curl -sf -X POST "$API/oauth/token" \
+  -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"grant_type\":\"authorization_code\",\"client_id\":\"$CLIENT_ID\",\"client_secret\":\"$CLIENT_SECRET\",\"code\":\"$CODE\",\"redirect_uri\":\"http://localhost:9999/cb\"}")
+AT=$(echo "$TOK" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+curl -sf -H "Authorization: Bearer $AT" -H "User-Agent: $UA" "$API/emails" | grep -q '"data"'
+# emails:read token should not be allowed to send
+if curl -sf -X POST "$API/emails" \
+  -H "Authorization: Bearer $AT" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{"from":"x@y.z","to":["a@b.c"],"subject":"no","html":"<p>x</p>"}' >/dev/null 2>&1; then
+  echo "oauth scope check failed: send should be forbidden" >&2
+  exit 1
+fi
 curl -sf -X DELETE "$API/oauth/apps/$OA_ID" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" | grep -q '"deleted":true'
 

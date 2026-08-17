@@ -243,27 +243,45 @@ func (s *Service) issueTokens(ctx context.Context, appID, teamID uuid.UUID, scop
 	}, nil
 }
 
-// LookupAccessToken resolves a Bearer OAuth access token to a team.
-func (s *Service) LookupAccessToken(ctx context.Context, authorization string) (*auth.Team, error) {
+// LookupAccessToken resolves a Bearer OAuth access token to a team and scopes.
+func (s *Service) LookupAccessToken(ctx context.Context, authorization string) (*auth.Team, []string, error) {
 	raw := strings.TrimSpace(authorization)
 	raw = strings.TrimPrefix(raw, "Bearer ")
 	raw = strings.TrimPrefix(raw, "bearer ")
 	if !strings.HasPrefix(raw, "ra_atk_") {
-		return nil, apierr.Unauthorized
+		return nil, nil, apierr.Unauthorized
 	}
 	var teamID uuid.UUID
 	var expires time.Time
+	var scopes []string
 	err := s.Pool.QueryRow(ctx, `
-		SELECT team_id, expires_at FROM oauth_access_tokens WHERE token_hash = $1
-	`, hashToken(raw)).Scan(&teamID, &expires)
+		SELECT team_id, expires_at, scopes FROM oauth_access_tokens WHERE token_hash = $1
+	`, hashToken(raw)).Scan(&teamID, &expires, &scopes)
 	if err == pgx.ErrNoRows {
-		return nil, apierr.Unauthorized
+		return nil, nil, apierr.Unauthorized
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if time.Now().After(expires) {
-		return nil, apierr.Unauthorized
+		return nil, nil, apierr.Unauthorized
 	}
-	return auth.LoadTeam(ctx, s.Pool, teamID)
+	team, err := auth.LoadTeam(ctx, s.Pool, teamID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return team, scopes, nil
+}
+
+// PublicApp returns non-secret metadata for the consent screen.
+func (s *Service) PublicApp(ctx context.Context, clientID string) (*App, error) {
+	var a App
+	err := s.Pool.QueryRow(ctx, `
+		SELECT id, name, client_id, redirect_uris, scopes, created_at
+		FROM oauth_apps WHERE client_id = $1
+	`, clientID).Scan(&a.ID, &a.Name, &a.ClientID, &a.RedirectURIs, &a.Scopes, &a.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, apierr.NotFound
+	}
+	return &a, err
 }

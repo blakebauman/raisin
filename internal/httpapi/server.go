@@ -219,9 +219,51 @@ func (s *Server) Router() http.Handler {
 
 	r.Post("/billing/webhook", s.stripeWebhook)
 	r.Post("/oauth/token", s.oauthToken)
+	r.Get("/oauth/apps/public", s.oauthPublicApp)
 
 	return r
 }
+
+func oauthScopeAllowed(method, path string, scopes []string) bool {
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, s := range scopes {
+		if s == "*" || s == "full_access" {
+			return true
+		}
+	}
+	need := ""
+	switch {
+	case strings.HasPrefix(path, "/emails") && method == http.MethodPost:
+		need = "emails:send"
+	case strings.HasPrefix(path, "/emails"):
+		need = "emails:read"
+	case strings.HasPrefix(path, "/domains"):
+		need = "domains:read"
+	case strings.HasPrefix(path, "/contacts"):
+		need = "contacts:read"
+	case strings.HasPrefix(path, "/templates"):
+		need = "templates:read"
+	case strings.HasPrefix(path, "/automations"):
+		need = "automations:read"
+	case strings.HasPrefix(path, "/ip-pools"):
+		need = "ips:read"
+	default:
+		return true // allow other routes unless we define tighter scopes later
+	}
+	for _, s := range scopes {
+		if s == need {
+			return true
+		}
+		// write scopes imply read
+		if need == "emails:read" && s == "emails:send" {
+			return true
+		}
+	}
+	return false
+}
+
 
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -251,9 +293,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			return
 		}
 		if s.OAuth != nil && strings.Contains(authz, "ra_atk_") {
-			team, err := s.OAuth.LookupAccessToken(r.Context(), authz)
+			team, scopes, err := s.OAuth.LookupAccessToken(r.Context(), authz)
 			if err == nil {
 				ctx := context.WithValue(r.Context(), auth.TeamKey, team)
+				ctx = context.WithValue(ctx, auth.OAuthScopesKey, scopes)
+				if !oauthScopeAllowed(r.Method, r.URL.Path, scopes) {
+					apierr.Write(w, apierr.New(403, "insufficient_scope", "token lacks required scope"))
+					return
+				}
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}

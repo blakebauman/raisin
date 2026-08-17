@@ -77,6 +77,12 @@ export default function OAuthAppsPage() {
       {createdSecret && (
         <div className="mb-6 rounded-md border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm max-w-xl">
           Client secret (shown once): <code className="font-mono text-orange-300 break-all">{createdSecret}</code>
+          <div className="mt-2 text-xs text-zinc-400">
+            Consent URL:{" "}
+            <code className="font-mono">
+              /oauth/authorize?client_id=…&redirect_uri=…
+            </code>
+          </div>
         </div>
       )}
       {msg && <p className="mb-4 text-sm text-red-400">{msg}</p>}
