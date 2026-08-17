@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,8 +17,8 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
-	"github.com/google/uuid"
 	"github.com/blakebauman/raisin/internal/config"
+	"github.com/google/uuid"
 )
 
 type Message struct {
@@ -447,4 +448,58 @@ func NewIdentity(cfg config.Config) IdentityManager {
 		}
 	}
 	return StubIdentity{}
+}
+
+// ConfigurationSets provisions SES configuration sets for dedicated IP pools.
+type ConfigurationSets interface {
+	Ensure(ctx context.Context, name, region string) error
+}
+
+type StubConfigurationSets struct{}
+
+func (StubConfigurationSets) Ensure(ctx context.Context, name, region string) error { return nil }
+
+type SESConfigurationSets struct {
+	cfg config.Config
+}
+
+func NewConfigurationSets(cfg config.Config) ConfigurationSets {
+	if cfg.SenderDriver == "ses" {
+		return &SESConfigurationSets{cfg: cfg}
+	}
+	return StubConfigurationSets{}
+}
+
+func (s *SESConfigurationSets) Ensure(ctx context.Context, name, region string) error {
+	if name == "" {
+		return fmt.Errorf("configuration set name required")
+	}
+	if region == "" {
+		region = s.cfg.AWSRegion
+	}
+	opts := []func(*awsconfig.LoadOptions) error{
+		awsconfig.WithRegion(region),
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
+	if err != nil {
+		return err
+	}
+	var clientOpts []func(*sesv2.Options)
+	if s.cfg.AWSEndpointURL != "" {
+		clientOpts = append(clientOpts, func(o *sesv2.Options) {
+			o.BaseEndpoint = aws.String(s.cfg.AWSEndpointURL)
+		})
+	}
+	client := sesv2.NewFromConfig(awsCfg, clientOpts...)
+	_, err = client.CreateConfigurationSet(ctx, &sesv2.CreateConfigurationSetInput{
+		ConfigurationSetName: aws.String(name),
+	})
+	if err != nil {
+		var exists *types.AlreadyExistsException
+		if errors.As(err, &exists) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }

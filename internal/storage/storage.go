@@ -173,3 +173,8 @@ func KeyForEmail(teamID, emailID, filename string) string {
 func KeyForInbound(teamID, messageID string) string {
 	return fmt.Sprintf("teams/%s/inbound/%s.eml", teamID, messageID)
 }
+
+func KeyForInboundAttachment(teamID, receivedID, filename string) string {
+	safe := strings.ReplaceAll(filepath.Base(filename), "..", "")
+	return fmt.Sprintf("teams/%s/inbound/%s/%s", teamID, receivedID, safe)
+}

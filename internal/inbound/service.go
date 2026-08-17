@@ -3,15 +3,17 @@ package inbound
 import (
 	"context"
 	"encoding/json"
-	"net/mail"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/blakebauman/raisin/internal/apierr"
 	"github.com/blakebauman/raisin/internal/db"
 	"github.com/blakebauman/raisin/internal/storage"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"net/mail"
 )
 
 type Service struct {
@@ -29,7 +31,19 @@ type ReceivedEmail struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type AttachmentMeta struct {
+	ID          uuid.UUID `json:"id"`
+	Filename    string    `json:"filename"`
+	ContentType string    `json:"content_type"`
+	SizeBytes   int64     `json:"size_bytes"`
+	StorageKey  string    `json:"-"`
+}
+
 func (s *Service) Store(ctx context.Context, teamID uuid.UUID, from string, to []string, subject, html, text, s3Key, providerMessageID string, domainID *uuid.UUID) (*ReceivedEmail, error) {
+	return s.StoreWithAttachments(ctx, teamID, from, to, subject, html, text, s3Key, providerMessageID, domainID, nil)
+}
+
+func (s *Service) StoreWithAttachments(ctx context.Context, teamID uuid.UUID, from string, to []string, subject, html, text, s3Key, providerMessageID string, domainID *uuid.UUID, atts []ParsedAttachment) (*ReceivedEmail, error) {
 	if providerMessageID != "" {
 		var existing uuid.UUID
 		err := s.Pool.QueryRow(ctx, `
@@ -47,7 +61,33 @@ func (s *Service) Store(ctx context.Context, teamID uuid.UUID, from string, to [
 	if err != nil {
 		return nil, err
 	}
+	for _, a := range atts {
+		if err := s.saveAttachment(ctx, teamID, id, a); err != nil {
+			return nil, err
+		}
+	}
 	return s.Get(ctx, teamID, id)
+}
+
+func (s *Service) saveAttachment(ctx context.Context, teamID, receivedID uuid.UUID, a ParsedAttachment) error {
+	if a.Filename == "" || len(a.Content) == 0 {
+		return nil
+	}
+	ct := a.ContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	key := storage.KeyForInboundAttachment(teamID.String(), receivedID.String(), a.Filename)
+	if s.Storage != nil {
+		if err := s.Storage.Put(ctx, key, a.Content, ct); err != nil {
+			return fmt.Errorf("store attachment: %w", err)
+		}
+	}
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO received_attachments (received_email_id, filename, content_type, size_bytes, storage_key)
+		VALUES ($1,$2,$3,$4,$5)
+	`, receivedID, filepath.Base(a.Filename), ct, len(a.Content), key)
+	return err
 }
 
 func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*ReceivedEmail, error) {
@@ -82,13 +122,65 @@ func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*ReceivedEmail,
 	return out, nil
 }
 
+func (s *Service) ListAttachments(ctx context.Context, teamID, receivedID uuid.UUID) ([]AttachmentMeta, error) {
+	var ok bool
+	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM received_emails WHERE id = $1 AND team_id = $2)`, receivedID, teamID).Scan(&ok)
+	if !ok {
+		return nil, apierr.NotFound
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, filename, content_type, size_bytes, storage_key
+		FROM received_attachments WHERE received_email_id = $1 ORDER BY created_at
+	`, receivedID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AttachmentMeta
+	for rows.Next() {
+		var a AttachmentMeta
+		if err := rows.Scan(&a.ID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.StorageKey); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, nil
+}
+
+func (s *Service) GetAttachment(ctx context.Context, teamID, receivedID, attachmentID uuid.UUID) (*AttachmentMeta, []byte, error) {
+	var ok bool
+	_ = s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM received_emails WHERE id = $1 AND team_id = $2)`, receivedID, teamID).Scan(&ok)
+	if !ok {
+		return nil, nil, apierr.NotFound
+	}
+	var a AttachmentMeta
+	err := s.Pool.QueryRow(ctx, `
+		SELECT id, filename, content_type, size_bytes, storage_key
+		FROM received_attachments WHERE id = $1 AND received_email_id = $2
+	`, attachmentID, receivedID).Scan(&a.ID, &a.Filename, &a.ContentType, &a.SizeBytes, &a.StorageKey)
+	if err == pgx.ErrNoRows {
+		return nil, nil, apierr.NotFound
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.Storage == nil {
+		return &a, nil, nil
+	}
+	body, _, err := s.Storage.Get(ctx, a.StorageKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &a, body, nil
+}
+
 // HandleSESNNotification parses SES inbound receipt JSON (mail + receipt with S3 action).
 func (s *Service) HandleSESNNotification(ctx context.Context, raw []byte) error {
 	var n struct {
 		NotificationType string `json:"notificationType"`
 		Mail             struct {
-			Source      string   `json:"source"`
-			Destination []string `json:"destination"`
+			Source        string   `json:"source"`
+			Destination   []string `json:"destination"`
 			CommonHeaders struct {
 				Subject string `json:"subject"`
 			} `json:"commonHeaders"`
@@ -106,29 +198,27 @@ func (s *Service) HandleSESNNotification(ctx context.Context, raw []byte) error 
 		return err
 	}
 
-	// Resolve team by recipient domain
 	teamID, domainID, err := s.teamForRecipients(ctx, n.Mail.Destination)
 	if err != nil || teamID == uuid.Nil {
-		return nil // drop unknown
+		return nil
 	}
 
 	html, text := "", ""
+	var atts []ParsedAttachment
 	s3Key := n.Receipt.Action.Key
 	s3Bucket := n.Receipt.Action.Bucket
-	// When SNS action is primary in the notification, S3 key may be absent —
-	// SES S3 action stores under object_key_prefix + messageId by default.
 	if s3Key == "" && n.Mail.MessageID != "" {
 		s3Key = "ses/" + n.Mail.MessageID
 	}
 	if s.Storage != nil && s3Key != "" {
 		body, _, err := s.Storage.GetFrom(ctx, s3Bucket, s3Key)
 		if err == nil {
-			html, text = parseMIMEBodies(string(body))
+			html, text, atts = parseMIMEMessage(body)
 			_ = s.Storage.Put(ctx, storage.KeyForInbound(teamID.String(), n.Mail.MessageID), body, "message/rfc822")
 		}
 	}
 
-	_, err = s.Store(ctx, teamID, n.Mail.Source, n.Mail.Destination, n.Mail.CommonHeaders.Subject, html, text, s3Key, n.Mail.MessageID, domainID)
+	_, err = s.StoreWithAttachments(ctx, teamID, n.Mail.Source, n.Mail.Destination, n.Mail.CommonHeaders.Subject, html, text, s3Key, n.Mail.MessageID, domainID, atts)
 	return err
 }
 
@@ -159,10 +249,8 @@ func (s *Service) teamForRecipients(ctx context.Context, recipients []string) (u
 }
 
 func parseMIMEBodies(raw string) (html, text string) {
-	// Minimal: if looks like HTML use as html else text
 	lower := strings.ToLower(raw)
 	if strings.Contains(lower, "content-type: text/html") || strings.Contains(lower, "<html") {
-		// crude body extract
 		if i := strings.Index(raw, "\r\n\r\n"); i >= 0 {
 			html = raw[i+4:]
 		} else if i := strings.Index(raw, "\n\n"); i >= 0 {

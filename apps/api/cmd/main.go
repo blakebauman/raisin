@@ -72,7 +72,7 @@ func main() {
 		Metrics:      &metrics.Service{Pool: pool},
 		Inbound:      &inbound.Service{Pool: pool, Storage: store},
 		Automations:  &automation.Service{Pool: pool, Client: asynqClient},
-		IPPools:      &ippool.Service{Pool: pool},
+		IPPools:      &ippool.Service{Pool: pool, ConfigSets: sender.NewConfigurationSets(cfg), LocalIPs: cfg.SenderDriver != "ses"},
 		OAuth:        &oauth.Service{Pool: pool},
 	}
 

@@ -60,10 +60,11 @@ WH_ID=$(echo "$WH" | python3 -c "import sys,json; print(json.load(sys.stdin)['id
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/webhooks/$WH_ID/events" | grep -q '"data"'
 
 echo "== inbound direct =="
-curl -sf -X POST "$API/inbound/ses" \
+INB=$(curl -sf -X POST "$API/inbound/ses" \
   -H "Content-Type: application/json" -H "User-Agent: $UA" \
-  -d '{"team_id":"00000000-0000-0000-0000-000000000001","from":"someone@elsewhere.com","to":["inbox@acme.test"],"subject":"Inbound","text":"hi"}' \
-  | grep -q '"from"'
+  -d '{"team_id":"00000000-0000-0000-0000-000000000001","from":"someone@elsewhere.com","to":["inbox@acme.test"],"subject":"Inbound","text":"hi","attachments":[{"filename":"note.txt","content_type":"text/plain","content":"aGVsbG8="}]}')
+echo "$INB" | grep -q '"from"'
+INB_ID=$(echo "$INB" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
 echo "== inbound rejects unsigned SNS =="
 CODE=$(curl -s -o /tmp/raisin-sns-reject.json -w "%{http_code}" -X POST "$API/inbound/ses" \
@@ -78,6 +79,9 @@ grep -q invalid_sns_signature /tmp/raisin-sns-reject.json
 
 echo "== received =="
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/received" | grep -q '"data"'
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/received/$INB_ID/attachments" | grep -q note.txt
+ATT_ID=$(curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/received/$INB_ID/attachments" | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])")
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/received/$INB_ID/attachments/$ATT_ID" | grep -q aGVsbG8=
 
 echo "== contact =="
 CT=$(curl -sf -X POST "$API/contacts" \

@@ -151,6 +151,28 @@ paths:
       responses:
         '200':
           description: OK
+  /emails/received/{id}/attachments:
+    get:
+      summary: List received email attachments
+      operationId: listReceivedAttachments
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /emails/received/{id}/attachments/{attachmentId}:
+    get:
+      summary: Download received email attachment
+      operationId: getReceivedAttachment
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
   /emails/metrics:
     get:
       summary: Email metrics

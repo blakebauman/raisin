@@ -59,7 +59,7 @@ func main() {
 	auto := &automation.Service{Pool: pool, Client: asynqClient}
 	proc := &events.Processor{Pool: pool, Webhooks: wh, Suppressions: supp, Billing: bill, Automations: auto}
 	dom := &domain.Service{Pool: pool, Identity: sender.NewIdentity(cfg)}
-	ips := &ippool.Service{Pool: pool}
+	ips := &ippool.Service{Pool: pool, ConfigSets: sender.NewConfigurationSets(cfg), LocalIPs: cfg.SenderDriver != "ses"}
 	emails := &email.Service{Pool: pool, Client: asynqClient, Storage: store}
 
 	h := &jobhandlers.Handlers{

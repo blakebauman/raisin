@@ -13,7 +13,11 @@ import (
 )
 
 type Service struct {
-	Pool *db.Pool
+	Pool       *db.Pool
+	ConfigSets interface {
+		Ensure(ctx context.Context, name, region string) error
+	}
+	LocalIPs bool // when true (mailpit/local), invent DOCUMENTATION IPs
 }
 
 type Pool struct {
@@ -54,20 +58,27 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateReques
 		region = "us-east-1"
 	}
 	configSet := fmt.Sprintf("raisin-%s-%s", teamID.String()[:8], sanitize(req.Name))
+	if s.ConfigSets != nil {
+		if err := s.ConfigSets.Ensure(ctx, configSet, region); err != nil {
+			return nil, apierr.New(502, "ses_config_set_failed", err.Error())
+		}
+	}
+	status := "warming"
 	var id uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
 		INSERT INTO ip_pools (team_id, name, region, status, ses_config_set)
-		VALUES ($1,$2,$3,'warming',$4) RETURNING id
-	`, teamID, req.Name, region, configSet).Scan(&id)
+		VALUES ($1,$2,$3,$4,$5) RETURNING id
+	`, teamID, req.Name, region, status, configSet).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	// Local/dev: synthesize a dedicated IP address placeholder
-	addr := fmt.Sprintf("203.0.113.%d", (id[15]%200)+10)
-	_, _ = s.Pool.Exec(ctx, `
-		INSERT INTO dedicated_ips (pool_id, address, provider_ref, status)
-		VALUES ($1,$2,$3,'assigned')
-	`, id, addr, "local-"+id.String())
+	if s.LocalIPs {
+		addr := fmt.Sprintf("203.0.113.%d", (id[15]%200)+10)
+		_, _ = s.Pool.Exec(ctx, `
+			INSERT INTO dedicated_ips (pool_id, address, provider_ref, status)
+			VALUES ($1,$2,$3,'assigned')
+		`, id, addr, "local-"+id.String())
+	}
 	plan := []int{50, 100, 200, 400, 800, 1600, 3200, 6400, 10000, 20000}
 	planJSON, _ := json.Marshal(plan)
 	_, _ = s.Pool.Exec(ctx, `

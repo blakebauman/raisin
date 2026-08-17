@@ -88,6 +88,8 @@ func (s *Server) Router() http.Handler {
 			r.Get("/metrics", s.emailMetrics)
 			r.Get("/received", s.listReceived)
 			r.Get("/received/{id}", s.getReceived)
+			r.Get("/received/{id}/attachments", s.listReceivedAttachments)
+			r.Get("/received/{id}/attachments/{attachmentId}", s.getReceivedAttachment)
 			r.Get("/{id}", s.getEmail)
 			r.Patch("/{id}", s.updateEmail)
 			r.Post("/{id}/cancel", s.cancelEmail)

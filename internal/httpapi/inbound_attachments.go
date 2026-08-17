@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/inbound"
 	"github.com/blakebauman/raisin/internal/snsverify"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -93,13 +94,18 @@ func (s *Server) inboundSES(w http.ResponseWriter, r *http.Request) {
 
 	// Direct ingest for local/dev
 	var direct struct {
-		TeamID  string   `json:"team_id"`
-		From    string   `json:"from"`
-		To      []string `json:"to"`
-		Subject string   `json:"subject"`
-		HTML    string   `json:"html"`
-		Text    string   `json:"text"`
-		S3Key   string   `json:"s3_key"`
+		TeamID      string   `json:"team_id"`
+		From        string   `json:"from"`
+		To          []string `json:"to"`
+		Subject     string   `json:"subject"`
+		HTML        string   `json:"html"`
+		Text        string   `json:"text"`
+		S3Key       string   `json:"s3_key"`
+		Attachments []struct {
+			Filename    string `json:"filename"`
+			ContentType string `json:"content_type"`
+			Content     string `json:"content"`
+		} `json:"attachments"`
 	}
 	if err := json.Unmarshal(body, &direct); err != nil {
 		apierr.Write(w, apierr.Validation("invalid json"))
@@ -110,7 +116,20 @@ func (s *Server) inboundSES(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, apierr.Validation("team_id required"))
 		return
 	}
-	rec, err := s.Inbound.Store(r.Context(), teamID, direct.From, direct.To, direct.Subject, direct.HTML, direct.Text, direct.S3Key, "", nil)
+	var atts []inbound.ParsedAttachment
+	for _, a := range direct.Attachments {
+		raw, err := base64.StdEncoding.DecodeString(a.Content)
+		if err != nil {
+			apierr.Write(w, apierr.Validation("invalid attachment content"))
+			return
+		}
+		ct := a.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		atts = append(atts, inbound.ParsedAttachment{Filename: a.Filename, ContentType: ct, Content: raw})
+	}
+	rec, err := s.Inbound.StoreWithAttachments(r.Context(), teamID, direct.From, direct.To, direct.Subject, direct.HTML, direct.Text, direct.S3Key, "", nil, atts)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -130,4 +149,49 @@ func (s *Server) inboundSES(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	apierr.WriteJSON(w, 200, rec)
+}
+
+func (s *Server) listReceivedAttachments(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	list, err := s.Inbound.ListAttachments(r.Context(), team.ID, id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, 200, map[string]any{"data": list})
+}
+
+func (s *Server) getReceivedAttachment(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
+	emailID, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	aid, err := uuid.Parse(chi.URLParam(r, "attachmentId"))
+	if err != nil {
+		apierr.Write(w, apierr.Validation("invalid attachment id"))
+		return
+	}
+	meta, body, err := s.Inbound.GetAttachment(r.Context(), team.ID, emailID, aid)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, 200, map[string]any{
+		"id":           meta.ID,
+		"filename":     meta.Filename,
+		"content_type": meta.ContentType,
+		"size_bytes":   meta.SizeBytes,
+		"content":      base64.StdEncoding.EncodeToString(body),
+	})
 }
