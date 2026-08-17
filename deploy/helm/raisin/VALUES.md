@@ -10,7 +10,14 @@
 #     --set secrets.DATABASE_URL="postgres://raisin:...@.../raisin" \
 #     --set secrets.REDIS_URL="redis://..." \
 #     --set secrets.JWT_SECRET="..." \
-#     --set secrets.BETTER_AUTH_SECRET="..."
+#     --set secrets.BETTER_AUTH_SECRET="..." \
+#     --set api.ingress.tls.clusterIssuer=letsencrypt-prod \
+#     --set worker.ingress.tls.clusterIssuer=letsencrypt-prod \
+#     --set console.ingress.tls.clusterIssuer=letsencrypt-prod
+#
+# Migrations: api pods run an initContainer (api.migrateInit) applying
+# deploy/helm/raisin/files/migrations/*.sql (copied from repo migrations/).
+# Optional: --set migrate.enabled=true for a post-install Job as well.
 #
 # Console images bake NEXT_PUBLIC_API_URL at build time (CI defaults to https://api.raisin.run).
 # Runtime RAISIN_API_URL (Helm) is used by the server-side /api/proxy.

@@ -6,3 +6,9 @@ service:
   port: 8081
 ingress:
   host: t.raisin.run
+  className: nginx
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: raisin-tracking-tls
+    clusterIssuer: ""

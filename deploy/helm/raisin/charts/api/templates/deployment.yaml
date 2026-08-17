@@ -13,6 +13,30 @@ spec:
         app: raisin-api
     spec:
       serviceAccountName: raisin-api
+      {{- if .Values.migrateInit.enabled }}
+      initContainers:
+        - name: migrate
+          image: {{ .Values.migrateInit.image | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: raisin-secrets
+                  key: DATABASE_URL
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              for f in /migrations/*.sql; do
+                echo "==> $f"
+                psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+              done
+      {{- end }}
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -41,6 +65,12 @@ spec:
               memory: 128Mi
             limits:
               memory: 512Mi
+      {{- if .Values.migrateInit.enabled }}
+      volumes:
+        - name: migrations
+          configMap:
+            name: raisin-migrations
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -58,8 +88,23 @@ kind: Ingress
 metadata:
   name: raisin-api
   annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "443"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- if and .Values.ingress.tls.enabled .Values.ingress.tls.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.tls.clusterIssuer | quote }}
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
   rules:
     - host: {{ .Values.ingress.host }}
       http:

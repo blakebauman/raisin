@@ -6,6 +6,12 @@ service:
   port: 3000
 ingress:
   host: app.raisin.run
+  className: nginx
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: raisin-console-tls
+    clusterIssuer: ""
 env:
   RAISIN_API_URL: http://raisin-api
   NEXT_PUBLIC_API_URL: https://api.raisin.run

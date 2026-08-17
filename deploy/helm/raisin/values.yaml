@@ -7,6 +7,11 @@ global:
 networkPolicy:
   enabled: true
 
+# Optional Helm hook Job (secrets must already exist). Prefer api.migrateInit.
+migrate:
+  enabled: false
+  image: postgres:16-alpine
+
 api:
   replicaCount: 2
   image:
@@ -14,8 +19,18 @@ api:
     tag: latest
   service:
     port: 8080
+  migrateInit:
+    enabled: true
+    image: postgres:16-alpine
   ingress:
     host: api.raisin.run
+    className: nginx
+    annotations: {}
+    tls:
+      enabled: true
+      secretName: raisin-api-tls
+      # e.g. letsencrypt-prod when cert-manager is installed
+      clusterIssuer: ""
 
 worker:
   replicaCount: 2
@@ -26,6 +41,12 @@ worker:
     port: 8081
   ingress:
     host: t.raisin.run
+    className: nginx
+    annotations: {}
+    tls:
+      enabled: true
+      secretName: raisin-tracking-tls
+      clusterIssuer: ""
 
 smtp:
   replicaCount: 1
@@ -46,6 +67,12 @@ console:
     port: 3000
   ingress:
     host: app.raisin.run
+    className: nginx
+    annotations: {}
+    tls:
+      enabled: true
+      secretName: raisin-console-tls
+      clusterIssuer: ""
   env:
     RAISIN_API_URL: http://raisin-api
     NEXT_PUBLIC_API_URL: https://api.raisin.run

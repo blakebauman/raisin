@@ -4,5 +4,14 @@ image:
   tag: latest
 service:
   port: 8080
+migrateInit:
+  enabled: true
+  image: postgres:16-alpine
 ingress:
   host: api.raisin.run
+  className: nginx
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: raisin-api-tls
+    clusterIssuer: ""

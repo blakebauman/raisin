@@ -165,7 +165,15 @@ jobs:
             --set secrets.REDIS_URL=redis://redis:6379 \
             --set global.irsaRoleArn=arn:aws:iam::123456789012:role/raisin-app \
             --set config.SQS_EVENTS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123/raisin \
+            --set api.ingress.tls.clusterIssuer=letsencrypt-prod \
+            --set migrate.enabled=true \
             >/dev/null
+          helm template raisin deploy/helm/raisin \
+            --set secrets.DATABASE_URL=postgres://raisin:x@db/raisin \
+            --set secrets.JWT_SECRET=ci \
+            --set secrets.REDIS_URL=redis://redis:6379 \
+            --set api.migrateInit.enabled=true \
+            | grep -q raisin-migrations
 
   images:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')

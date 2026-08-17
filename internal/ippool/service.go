@@ -8,6 +8,7 @@ import (
 
 	"github.com/blakebauman/raisin/internal/apierr"
 	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/sender"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -15,7 +16,7 @@ import (
 type Service struct {
 	Pool       *db.Pool
 	ConfigSets interface {
-		Ensure(ctx context.Context, name, region string) error
+		Ensure(ctx context.Context, name, region string) ([]sender.PoolIPInfo, error)
 	}
 	LocalIPs bool // when true (mailpit/local), invent DOCUMENTATION IPs
 }
@@ -58,8 +59,11 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateReques
 		region = "us-east-1"
 	}
 	configSet := fmt.Sprintf("raisin-%s-%s", teamID.String()[:8], sanitize(req.Name))
+	var sesIPs []sender.PoolIPInfo
 	if s.ConfigSets != nil {
-		if err := s.ConfigSets.Ensure(ctx, configSet, region); err != nil {
+		var err error
+		sesIPs, err = s.ConfigSets.Ensure(ctx, configSet, region)
+		if err != nil {
 			return nil, apierr.New(502, "ses_config_set_failed", err.Error())
 		}
 	}
@@ -78,6 +82,14 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateReques
 			INSERT INTO dedicated_ips (pool_id, address, provider_ref, status)
 			VALUES ($1,$2,$3,'assigned')
 		`, id, addr, "local-"+id.String())
+	} else {
+		for _, ip := range sesIPs {
+			_, _ = s.Pool.Exec(ctx, `
+				INSERT INTO dedicated_ips (pool_id, address, provider_ref, status)
+				VALUES ($1,$2,$3,$4)
+				ON CONFLICT (pool_id, address) DO NOTHING
+			`, id, ip.Address, ip.ProviderRef, ip.Status)
+		}
 	}
 	plan := []int{50, 100, 200, 400, 800, 1600, 3200, 6400, 10000, 20000}
 	planJSON, _ := json.Marshal(plan)

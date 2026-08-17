@@ -450,14 +450,23 @@ func NewIdentity(cfg config.Config) IdentityManager {
 	return StubIdentity{}
 }
 
-// ConfigurationSets provisions SES configuration sets for dedicated IP pools.
+// ConfigurationSets provisions SES configuration sets + managed dedicated IP pools.
 type ConfigurationSets interface {
-	Ensure(ctx context.Context, name, region string) error
+	Ensure(ctx context.Context, name, region string) ([]PoolIPInfo, error)
+}
+
+// PoolIPInfo is a dedicated IP associated with a pool after Ensure.
+type PoolIPInfo struct {
+	Address     string
+	ProviderRef string
+	Status      string
 }
 
 type StubConfigurationSets struct{}
 
-func (StubConfigurationSets) Ensure(ctx context.Context, name, region string) error { return nil }
+func (StubConfigurationSets) Ensure(ctx context.Context, name, region string) ([]PoolIPInfo, error) {
+	return nil, nil
+}
 
 type SESConfigurationSets struct {
 	cfg config.Config
@@ -470,9 +479,9 @@ func NewConfigurationSets(cfg config.Config) ConfigurationSets {
 	return StubConfigurationSets{}
 }
 
-func (s *SESConfigurationSets) Ensure(ctx context.Context, name, region string) error {
+func (s *SESConfigurationSets) Ensure(ctx context.Context, name, region string) ([]PoolIPInfo, error) {
 	if name == "" {
-		return fmt.Errorf("configuration set name required")
+		return nil, fmt.Errorf("configuration set name required")
 	}
 	if region == "" {
 		region = s.cfg.AWSRegion
@@ -482,7 +491,7 @@ func (s *SESConfigurationSets) Ensure(ctx context.Context, name, region string) 
 	}
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var clientOpts []func(*sesv2.Options)
 	if s.cfg.AWSEndpointURL != "" {
@@ -497,10 +506,66 @@ func (s *SESConfigurationSets) Ensure(ctx context.Context, name, region string) 
 	if err != nil {
 		var exists *types.AlreadyExistsException
 		if !errors.As(err, &exists) {
-			return err
+			return nil, err
 		}
 	}
-	return s.ensureEventDestination(ctx, client, name)
+	if err := s.ensureEventDestination(ctx, client, name); err != nil {
+		return nil, err
+	}
+	if err := s.ensureDedicatedPool(ctx, client, name); err != nil {
+		return nil, err
+	}
+	return s.listPoolIPs(ctx, client, name)
+}
+
+func (s *SESConfigurationSets) ensureDedicatedPool(ctx context.Context, client *sesv2.Client, name string) error {
+	_, err := client.CreateDedicatedIpPool(ctx, &sesv2.CreateDedicatedIpPoolInput{
+		PoolName:    aws.String(name),
+		ScalingMode: types.ScalingModeManaged,
+	})
+	if err != nil {
+		var exists *types.AlreadyExistsException
+		if !errors.As(err, &exists) {
+			return fmt.Errorf("create dedicated ip pool: %w", err)
+		}
+	}
+	_, err = client.PutConfigurationSetDeliveryOptions(ctx, &sesv2.PutConfigurationSetDeliveryOptionsInput{
+		ConfigurationSetName: aws.String(name),
+		SendingPoolName:      aws.String(name),
+	})
+	if err != nil {
+		return fmt.Errorf("bind config set to dedicated pool: %w", err)
+	}
+	return nil
+}
+
+func (s *SESConfigurationSets) listPoolIPs(ctx context.Context, client *sesv2.Client, poolName string) ([]PoolIPInfo, error) {
+	out, err := client.GetDedicatedIps(ctx, &sesv2.GetDedicatedIpsInput{
+		PoolName: aws.String(poolName),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list dedicated ips: %w", err)
+	}
+	var ips []PoolIPInfo
+	for _, dip := range out.DedicatedIps {
+		addr := aws.ToString(dip.Ip)
+		if addr == "" {
+			continue
+		}
+		status := "assigned"
+		switch dip.WarmupStatus {
+		case types.WarmupStatusInProgress:
+			status = "warming"
+		case types.WarmupStatusDone:
+			status = "active"
+		}
+		ips = append(ips, PoolIPInfo{
+			Address:     addr,
+			ProviderRef: poolName + "/" + addr,
+			Status:      status,
+		})
+	}
+	return ips, nil
 }
 
 func (s *SESConfigurationSets) ensureEventDestination(ctx context.Context, client *sesv2.Client, configSet string) error {
