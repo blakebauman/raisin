@@ -181,6 +181,23 @@ func (s *Server) pauseIPPool(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteJSON(w, 200, p)
 }
 
+func (s *Server) tickIPPoolWarmup(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	p, err := s.IPPools.TickWarmup(r.Context(), team.ID, id)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, 200, p)
+}
+
 func (s *Server) resumeIPPool(w http.ResponseWriter, r *http.Request) {
 	team := teamOrWrite(w, r)
 	if team == nil {
@@ -436,6 +453,11 @@ func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	grant := r.FormValue("grant_type")
+	clientID := r.FormValue("client_id")
+	clientSecret := r.FormValue("client_secret")
+	code := r.FormValue("code")
+	redirectURI := r.FormValue("redirect_uri")
+	refreshToken := r.FormValue("refresh_token")
 	if grant == "" {
 		var body struct {
 			GrantType    string `json:"grant_type"`
@@ -443,31 +465,34 @@ func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
 			ClientSecret string `json:"client_secret"`
 			Code         string `json:"code"`
 			RedirectURI  string `json:"redirect_uri"`
+			RefreshToken string `json:"refresh_token"`
 		}
 		_ = decode(r, &body)
 		grant = body.GrantType
-		if grant == "authorization_code" {
-			tok, err := s.OAuth.ExchangeCode(r.Context(), body.ClientID, body.ClientSecret, body.Code, body.RedirectURI)
-			if err != nil {
-				writeErr(w, err)
-				return
-			}
-			apierr.WriteJSON(w, 200, tok)
+		clientID = body.ClientID
+		clientSecret = body.ClientSecret
+		code = body.Code
+		redirectURI = body.RedirectURI
+		refreshToken = body.RefreshToken
+	}
+	switch grant {
+	case "authorization_code":
+		tok, err := s.OAuth.ExchangeCode(r.Context(), clientID, clientSecret, code, redirectURI)
+		if err != nil {
+			writeErr(w, err)
 			return
 		}
+		apierr.WriteJSON(w, 200, tok)
+	case "refresh_token":
+		tok, err := s.OAuth.RefreshExchange(r.Context(), clientID, clientSecret, refreshToken)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		apierr.WriteJSON(w, 200, tok)
+	default:
 		apierr.Write(w, apierr.Validation("unsupported grant_type"))
-		return
 	}
-	if grant != "authorization_code" {
-		apierr.Write(w, apierr.Validation("unsupported grant_type"))
-		return
-	}
-	tok, err := s.OAuth.ExchangeCode(r.Context(), r.FormValue("client_id"), r.FormValue("client_secret"), r.FormValue("code"), r.FormValue("redirect_uri"))
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	apierr.WriteJSON(w, 200, tok)
 }
 
 func (s *Server) renderTemplatePreview(w http.ResponseWriter, r *http.Request) {

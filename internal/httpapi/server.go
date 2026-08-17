@@ -191,6 +191,7 @@ func (s *Server) Router() http.Handler {
 			r.Get("/{id}", s.getIPPool)
 			r.Post("/{id}/pause", s.pauseIPPool)
 			r.Post("/{id}/resume", s.resumeIPPool)
+			r.Post("/{id}/warmup/tick", s.tickIPPoolWarmup)
 			r.Post("/{id}/assign-domain", s.assignIPPoolDomain)
 			r.Delete("/{id}", s.deleteIPPool)
 		})

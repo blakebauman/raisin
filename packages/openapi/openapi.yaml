@@ -796,6 +796,15 @@ paths:
       responses:
         '200':
           description: OK
+  /ip-pools/{id}/warmup/tick:
+    post:
+      summary: Advance warmup day if due
+      operationId: tickIPPoolWarmup
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
   /ip-pools/{id}/assign-domain:
     post:
       summary: Assign domain to IP pool
@@ -857,7 +866,7 @@ paths:
           description: OK
   /oauth/token:
     post:
-      summary: Exchange authorization code for access token
+      summary: Exchange authorization code or refresh token
       security: []
       operationId: oauthToken
       responses:

@@ -138,6 +138,21 @@ func NewAutomationStepTaskAt(runID, teamID string, at time.Time) (*asynq.Task, e
 	), nil
 }
 
+// NewIPWarmupTickTask enqueues a global warmup day rollover (all due pools).
+func NewIPWarmupTickTask() (*asynq.Task, error) {
+	b, err := json.Marshal(IPWarmupTickPayload{})
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(TypeIPWarmupTick, b, asynq.Queue(QueueLow), asynq.MaxRetry(3)), nil
+}
+
+func NewScheduler(cfg config.Config) *asynq.Scheduler {
+	return asynq.NewScheduler(asynq.RedisClientOpt{Addr: redisAddr(cfg.RedisURL)}, &asynq.SchedulerOpts{
+		Location: time.UTC,
+	})
+}
+
 func redisAddr(redisURL string) string {
 	// Accept redis://host:port or host:port
 	u := redisURL

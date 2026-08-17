@@ -75,6 +75,19 @@ func main() {
 		}
 	}()
 
+	scheduler := jobs.NewScheduler(cfg)
+	if task, err := jobs.NewIPWarmupTickTask(); err == nil {
+		if _, err := scheduler.Register("0 0 * * *", task); err != nil {
+			log.Printf("warmup scheduler register: %v", err)
+		} else {
+			go func() {
+				log.Printf("asynq scheduler starting (ip warmup daily UTC)")
+				if err := scheduler.Run(); err != nil {
+					log.Printf("scheduler: %v", err)
+				}
+			}()
+		}
+	}
 	// SES → SNS → SQS consumer (optional when queue URL set)
 	if cfg.SQSEventsQueueURL != "" {
 		consumer, err := events.NewSQSConsumer(cfg, proc)
@@ -104,6 +117,7 @@ func main() {
 
 	<-ctx.Done()
 	server.Shutdown()
+	scheduler.Shutdown()
 	shCtx, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel2()
 	_ = httpSrv.Shutdown(shCtx)

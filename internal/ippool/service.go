@@ -167,8 +167,121 @@ func (s *Service) Delete(ctx context.Context, teamID, id uuid.UUID) error {
 	return nil
 }
 
+// TickAllWarmups advances day caps for every non-paused pool whose last reset was before today.
+func (s *Service) TickAllWarmups(ctx context.Context) (int, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT w.pool_id FROM warmup_schedules w
+		JOIN ip_pools p ON p.id = w.pool_id
+		WHERE p.status IN ('warming', 'active')
+		  AND w.last_reset_at < date_trunc('day', timezone('UTC', now()))
+	`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	n := 0
+	for _, id := range ids {
+		advanced, err := s.advanceWarmupIfDue(ctx, id)
+		if err != nil {
+			return n, err
+		}
+		if advanced {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// TickWarmup advances the warmup day for a team-owned pool when due.
+func (s *Service) TickWarmup(ctx context.Context, teamID, poolID uuid.UUID) (*Pool, error) {
+	var ok bool
+	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM ip_pools WHERE id = $1 AND team_id = $2)`, poolID, teamID).Scan(&ok)
+	if err != nil || !ok {
+		return nil, apierr.NotFound
+	}
+	if _, err := s.advanceWarmupIfDue(ctx, poolID); err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, teamID, poolID)
+}
+
+func (s *Service) advanceWarmupIfDue(ctx context.Context, poolID uuid.UUID) (bool, error) {
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	var status string
+	err = tx.QueryRow(ctx, `SELECT status FROM ip_pools WHERE id = $1 FOR UPDATE`, poolID).Scan(&status)
+	if err == pgx.ErrNoRows {
+		return false, apierr.NotFound
+	}
+	if err != nil {
+		return false, err
+	}
+	if status == "paused" || status == "failed" {
+		return false, nil
+	}
+	var dayIndex, dailyCap, sentToday int
+	var lastReset time.Time
+	var planRaw []byte
+	err = tx.QueryRow(ctx, `
+		SELECT day_index, daily_cap, sent_today, last_reset_at, plan
+		FROM warmup_schedules WHERE pool_id = $1 FOR UPDATE
+	`, poolID).Scan(&dayIndex, &dailyCap, &sentToday, &lastReset, &planRaw)
+	if err != nil {
+		return false, err
+	}
+	now := time.Now().UTC()
+	if !lastReset.UTC().Truncate(24 * time.Hour).Before(now.Truncate(24 * time.Hour)) {
+		return false, nil
+	}
+	var plan []int
+	_ = json.Unmarshal(planRaw, &plan)
+	dayIndex, dailyCap, markActive := NextWarmupDay(dayIndex, plan)
+	if markActive {
+		_, _ = tx.Exec(ctx, `UPDATE ip_pools SET status = 'active', updated_at = now() WHERE id = $1`, poolID)
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE warmup_schedules SET day_index = $2, daily_cap = $3, sent_today = 0,
+		last_reset_at = date_trunc('day', timezone('UTC', now())), updated_at = now()
+		WHERE pool_id = $1
+	`, poolID, dayIndex, dailyCap)
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// NextWarmupDay returns the next plan day index, daily cap, and whether the pool should become active.
+func NextWarmupDay(dayIndex int, plan []int) (newDay, newCap int, markActive bool) {
+	newDay = dayIndex + 1
+	if newDay < len(plan) {
+		return newDay, plan[newDay], false
+	}
+	if len(plan) > 0 {
+		return newDay, plan[len(plan)-1], true
+	}
+	return newDay, 50, true
+}
+
 // ReserveSend checks warmup caps for a pool; returns config set name if allowed.
 func (s *Service) ReserveSend(ctx context.Context, poolID uuid.UUID) (configSet string, err error) {
+	if _, err := s.advanceWarmupIfDue(ctx, poolID); err != nil {
+		return "", err
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return "", err
@@ -187,37 +300,12 @@ func (s *Service) ReserveSend(ctx context.Context, poolID uuid.UUID) (configSet 
 	if status == "paused" || status == "failed" {
 		return "", apierr.Validation("ip pool is not active")
 	}
-	var dayIndex, dailyCap, sentToday int
-	var lastReset time.Time
-	var planRaw []byte
+	var dailyCap, sentToday int
 	err = tx.QueryRow(ctx, `
-		SELECT day_index, daily_cap, sent_today, last_reset_at, plan
-		FROM warmup_schedules WHERE pool_id = $1 FOR UPDATE
-	`, poolID).Scan(&dayIndex, &dailyCap, &sentToday, &lastReset, &planRaw)
+		SELECT daily_cap, sent_today FROM warmup_schedules WHERE pool_id = $1 FOR UPDATE
+	`, poolID).Scan(&dailyCap, &sentToday)
 	if err != nil {
 		return "", err
-	}
-	now := time.Now().UTC()
-	if lastReset.UTC().Truncate(24*time.Hour).Before(now.Truncate(24 * time.Hour)) {
-		dayIndex++
-		var plan []int
-		_ = json.Unmarshal(planRaw, &plan)
-		if dayIndex < len(plan) {
-			dailyCap = plan[dayIndex]
-		} else if len(plan) > 0 {
-			dailyCap = plan[len(plan)-1]
-			status = "active"
-			_, _ = tx.Exec(ctx, `UPDATE ip_pools SET status = 'active' WHERE id = $1`, poolID)
-		}
-		sentToday = 0
-		_, err = tx.Exec(ctx, `
-			UPDATE warmup_schedules SET day_index = $2, daily_cap = $3, sent_today = 0,
-			last_reset_at = date_trunc('day', now()), updated_at = now()
-			WHERE pool_id = $1
-		`, poolID, dayIndex, dailyCap)
-		if err != nil {
-			return "", err
-		}
 	}
 	if sentToday >= dailyCap {
 		return "", apierr.New(429, "warmup_cap", "dedicated IP daily warmup cap reached")

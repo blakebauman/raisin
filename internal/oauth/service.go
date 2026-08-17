@@ -211,6 +211,45 @@ func (s *Service) ExchangeCode(ctx context.Context, clientID, clientSecret, code
 	return s.issueTokens(ctx, appID, teamID, scopes)
 }
 
+// RefreshExchange rotates a refresh token into a new access + refresh pair.
+func (s *Service) RefreshExchange(ctx context.Context, clientID, clientSecret, refreshToken string) (*TokenResponse, error) {
+	var appID uuid.UUID
+	var secretHash string
+	err := s.Pool.QueryRow(ctx, `
+		SELECT id, client_secret_hash FROM oauth_apps WHERE client_id = $1
+	`, clientID).Scan(&appID, &secretHash)
+	if err == pgx.ErrNoRows || hashToken(clientSecret) != secretHash {
+		return nil, apierr.Unauthorized
+	}
+	if err != nil {
+		return nil, err
+	}
+	raw := strings.TrimSpace(refreshToken)
+	raw = strings.TrimPrefix(raw, "Bearer ")
+	if !strings.HasPrefix(raw, "ra_rtk_") {
+		return nil, apierr.Validation("invalid refresh_token")
+	}
+	var tokenID, teamID uuid.UUID
+	var scopes []string
+	var expires time.Time
+	var revoked *time.Time
+	err = s.Pool.QueryRow(ctx, `
+		SELECT id, team_id, scopes, expires_at, revoked_at
+		FROM oauth_refresh_tokens WHERE token_hash = $1 AND app_id = $2
+	`, hashToken(raw), appID).Scan(&tokenID, &teamID, &scopes, &expires, &revoked)
+	if err == pgx.ErrNoRows {
+		return nil, apierr.Unauthorized
+	}
+	if err != nil {
+		return nil, err
+	}
+	if revoked != nil || time.Now().After(expires) {
+		return nil, apierr.Unauthorized
+	}
+	_, _ = s.Pool.Exec(ctx, `UPDATE oauth_refresh_tokens SET revoked_at = now() WHERE id = $1`, tokenID)
+	return s.issueTokens(ctx, appID, teamID, scopes)
+}
+
 func (s *Service) issueTokens(ctx context.Context, appID, teamID uuid.UUID, scopes []string) (*TokenResponse, error) {
 	access, err := randomToken("ra_atk_", 32)
 	if err != nil {

@@ -38,6 +38,7 @@ type Handlers struct {
 	Emails   *email.Service
 	IPPools  interface {
 		ReserveSend(ctx context.Context, poolID uuid.UUID) (string, error)
+		TickAllWarmups(ctx context.Context) (int, error)
 	}
 }
 
@@ -48,6 +49,7 @@ func (h *Handlers) Mux() *asynq.ServeMux {
 	mux.HandleFunc(jobs.TypeBroadcastSend, h.HandleBroadcastSend)
 	mux.HandleFunc(jobs.TypeDomainVerify, h.HandleDomainVerify)
 	mux.HandleFunc(jobs.TypeAutomationStep, h.HandleAutomationStep)
+	mux.HandleFunc(jobs.TypeIPWarmupTick, h.HandleIPWarmupTick)
 	return mux
 }
 
@@ -305,6 +307,21 @@ func (h *Handlers) HandleDomainVerify(ctx context.Context, t *asynq.Task) error 
 	}
 	_, err = h.Domains.Verify(ctx, teamID, domainID)
 	return err
+}
+
+func (h *Handlers) HandleIPWarmupTick(ctx context.Context, t *asynq.Task) error {
+	_ = t
+	if h.IPPools == nil {
+		return nil
+	}
+	n, err := h.IPPools.TickAllWarmups(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		log.Printf("ip warmup tick advanced %d pools", n)
+	}
+	return nil
 }
 
 // TrackingHTTP serves open/click + unsubscribe endpoints on the worker.

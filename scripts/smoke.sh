@@ -165,9 +165,18 @@ if [[ "$RUN_OK" != "1" ]]; then
 fi
 
 echo "== ip pools =="
-curl -sf -X POST "$API/ip-pools" \
+POOL=$(curl -sf -X POST "$API/ip-pools" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
-  -d "{\"name\":\"smoke-$STAMP\",\"region\":\"us-east-1\"}" | grep -q '"warmup"'
+  -d "{\"name\":\"smoke-$STAMP\",\"region\":\"us-east-1\"}")
+echo "$POOL" | grep -q '"warmup"'
+POOL_ID=$(echo "$POOL" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+DBURL="${DATABASE_URL:-postgres://raisin:raisin@localhost:5433/raisin?sslmode=disable}"
+if command -v psql >/dev/null 2>&1; then
+  psql "$DBURL" -q -c "UPDATE warmup_schedules SET last_reset_at = now() - interval '2 days', sent_today = 5 WHERE pool_id = '$POOL_ID'"
+  TICK=$(curl -sf -X POST "$API/ip-pools/$POOL_ID/warmup/tick" \
+    -H "Authorization: Bearer $KEY" -H "User-Agent: $UA")
+  echo "$TICK" | python3 -c "import sys,json; w=json.load(sys.stdin).get('warmup') or {}; assert w.get('day_index',0)>=1 and w.get('sent_today')==0, w"
+fi
 
 echo "== regions =="
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/domains/regions" | grep -q us-east-1
@@ -195,12 +204,25 @@ TOK=$(curl -sf -X POST "$API/oauth/token" \
   -H "User-Agent: $UA" -H "Content-Type: application/json" \
   -d "{\"grant_type\":\"authorization_code\",\"client_id\":\"$CLIENT_ID\",\"client_secret\":\"$CLIENT_SECRET\",\"code\":\"$CODE\",\"redirect_uri\":\"http://localhost:9999/cb\"}")
 AT=$(echo "$TOK" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+RT=$(echo "$TOK" | python3 -c "import sys,json; print(json.load(sys.stdin)['refresh_token'])")
 curl -sf -H "Authorization: Bearer $AT" -H "User-Agent: $UA" "$API/emails" | grep -q '"data"'
 # emails:read token should not be allowed to send
 if curl -sf -X POST "$API/emails" \
   -H "Authorization: Bearer $AT" -H "User-Agent: $UA" -H "Content-Type: application/json" \
   -d '{"from":"x@y.z","to":["a@b.c"],"subject":"no","html":"<p>x</p>"}' >/dev/null 2>&1; then
   echo "oauth scope check failed: send should be forbidden" >&2
+  exit 1
+fi
+REF=$(curl -sf -X POST "$API/oauth/token" \
+  -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"grant_type\":\"refresh_token\",\"client_id\":\"$CLIENT_ID\",\"client_secret\":\"$CLIENT_SECRET\",\"refresh_token\":\"$RT\"}")
+AT2=$(echo "$REF" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+curl -sf -H "Authorization: Bearer $AT2" -H "User-Agent: $UA" "$API/emails" | grep -q '"data"'
+# old refresh token must not work twice
+if curl -sf -X POST "$API/oauth/token" \
+  -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"grant_type\":\"refresh_token\",\"client_id\":\"$CLIENT_ID\",\"client_secret\":\"$CLIENT_SECRET\",\"refresh_token\":\"$RT\"}" >/dev/null 2>&1; then
+  echo "oauth refresh reuse should fail" >&2
   exit 1
 fi
 curl -sf -X DELETE "$API/oauth/apps/$OA_ID" \
