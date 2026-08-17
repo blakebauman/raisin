@@ -11,6 +11,11 @@ RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Baked into the client bundle at build time (runtime env cannot change NEXT_PUBLIC_*).
+ARG NEXT_PUBLIC_API_URL=https://api.raisin.run
+ARG BETTER_AUTH_URL=https://app.raisin.run
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV BETTER_AUTH_URL=$BETTER_AUTH_URL
 RUN pnpm build
 
 FROM node:22-alpine AS runner
@@ -25,4 +30,6 @@ USER raisin
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+# Server-side proxy target (overridable at runtime via Helm).
+ENV RAISIN_API_URL=http://raisin-api
 CMD ["node", "server.js"]

@@ -496,10 +496,48 @@ func (s *SESConfigurationSets) Ensure(ctx context.Context, name, region string) 
 	})
 	if err != nil {
 		var exists *types.AlreadyExistsException
-		if errors.As(err, &exists) {
-			return nil
+		if !errors.As(err, &exists) {
+			return err
 		}
+	}
+	return s.ensureEventDestination(ctx, client, name)
+}
+
+func (s *SESConfigurationSets) ensureEventDestination(ctx context.Context, client *sesv2.Client, configSet string) error {
+	topic := s.cfg.SESSNSTopicARN
+	if topic == "" {
+		return nil
+	}
+	dest := &types.EventDestinationDefinition{
+		Enabled: true,
+		MatchingEventTypes: []types.EventType{
+			types.EventTypeSend,
+			types.EventTypeReject,
+			types.EventTypeBounce,
+			types.EventTypeComplaint,
+			types.EventTypeDelivery,
+			types.EventTypeOpen,
+			types.EventTypeClick,
+			types.EventTypeDeliveryDelay,
+		},
+		SnsDestination: &types.SnsDestination{TopicArn: aws.String(topic)},
+	}
+	_, err := client.CreateConfigurationSetEventDestination(ctx, &sesv2.CreateConfigurationSetEventDestinationInput{
+		ConfigurationSetName: aws.String(configSet),
+		EventDestinationName: aws.String("sns"),
+		EventDestination:     dest,
+	})
+	if err == nil {
+		return nil
+	}
+	var exists *types.AlreadyExistsException
+	if !errors.As(err, &exists) {
 		return err
 	}
-	return nil
+	_, err = client.UpdateConfigurationSetEventDestination(ctx, &sesv2.UpdateConfigurationSetEventDestinationInput{
+		ConfigurationSetName: aws.String(configSet),
+		EventDestinationName: aws.String("sns"),
+		EventDestination:     dest,
+	})
+	return err
 }

@@ -23,6 +23,7 @@ type Config struct {
 	S3InboundBucket     string
 	SQSEventsQueueURL   string
 	SESConfigurationSet string
+	SESSNSTopicARN      string
 	StripeSecretKey     string
 	StripeWebhookSecret string
 	DefaultMonthlyQuota int
@@ -46,6 +47,7 @@ func Load() Config {
 		S3InboundBucket:     getenv("S3_INBOUND_BUCKET", ""),
 		SQSEventsQueueURL:   getenv("SQS_EVENTS_QUEUE_URL", ""),
 		SESConfigurationSet: getenv("SES_CONFIGURATION_SET", "raisin-events"),
+		SESSNSTopicARN:      getenv("SES_SNS_TOPIC_ARN", ""),
 		StripeSecretKey:     getenv("STRIPE_SECRET_KEY", ""),
 		StripeWebhookSecret: getenv("STRIPE_WEBHOOK_SECRET", ""),
 		DefaultMonthlyQuota: getenvInt("DEFAULT_MONTHLY_QUOTA", 3000),

@@ -32,16 +32,9 @@ export default function OAuthAuthorizePage() {
       setError("client_id is required");
       return;
     }
-    fetch(
-      `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:18080"}/oauth/apps/public?client_id=${encodeURIComponent(clientId)}`,
-      { headers: { "User-Agent": "raisin-console/0.1.0" } },
-    )
-      .then(async (r) => {
-        if (!r.ok) throw new Error("unknown OAuth app");
-        return r.json();
-      })
-      .then((a: PublicApp) => setApp(a))
-      .catch((e) => setError(e.message));
+    apiFetch<PublicApp>(`/oauth/apps/public?client_id=${encodeURIComponent(clientId)}`)
+      .then((a) => setApp(a))
+      .catch((e) => setError(e instanceof Error ? e.message : "unknown OAuth app"));
   }, [clientId]);
 
   async function approve() {

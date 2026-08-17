@@ -8,6 +8,7 @@ data:
   SENDER_DRIVER: {{ .Values.config.SENDER_DRIVER | quote }}
   AWS_REGION: {{ .Values.config.AWS_REGION | quote }}
   SES_CONFIGURATION_SET: {{ .Values.config.SES_CONFIGURATION_SET | quote }}
+  SES_SNS_TOPIC_ARN: {{ .Values.config.SES_SNS_TOPIC_ARN | default "" | quote }}
   CONSOLE_ORIGIN: {{ .Values.config.CONSOLE_ORIGIN | quote }}
   TRACKING_BASE_URL: {{ .Values.config.TRACKING_BASE_URL | quote }}
   SQS_EVENTS_QUEUE_URL: {{ .Values.config.SQS_EVENTS_QUEUE_URL | quote }}

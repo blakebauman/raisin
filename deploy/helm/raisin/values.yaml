@@ -57,6 +57,8 @@ config:
   SENDER_DRIVER: ses
   AWS_REGION: us-east-1
   SES_CONFIGURATION_SET: raisin-prod-events
+  # terraform output -raw sns_topic_arn
+  SES_SNS_TOPIC_ARN: ""
   CONSOLE_ORIGIN: https://app.raisin.run
   TRACKING_BASE_URL: https://t.raisin.run
   SQS_EVENTS_QUEUE_URL: ""
