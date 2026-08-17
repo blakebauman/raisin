@@ -18,6 +18,7 @@ import {
   Workflow,
   Server,
   Shield,
+  Tags,
 } from "lucide-react";
 
 const nav = [
@@ -31,6 +32,7 @@ const nav = [
   { href: "/oauth", label: "OAuth Apps", icon: Shield },
   { href: "/webhooks", label: "Webhooks", icon: Webhook },
   { href: "/contacts", label: "Contacts", icon: Users },
+  { href: "/topics", label: "Topics", icon: Tags },
   { href: "/suppressions", label: "Suppressions", icon: Ban },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/broadcasts", label: "Broadcasts", icon: Megaphone },

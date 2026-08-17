@@ -1,6 +1,7 @@
-.PHONY: api worker smtp migrate tidy test console sdk-js sdk-go cli mcp smoke compose-up compose-apps compose-down
+.PHONY: api worker smtp migrate tidy test console sdk-js sdk-go cli mcp smoke compose-up compose-apps compose-down helm-sync helm-sync-check
 
 DATABASE_URL ?= postgres://raisin:raisin@localhost:5433/raisin?sslmode=disable
+HELM_MIG_DIR := deploy/helm/raisin/files/migrations
 
 api:
 	go run ./apps/api/cmd
@@ -18,9 +19,18 @@ mcp:
 	pnpm --filter @raisin-run/mcp-server start
 
 migrate:
-	psql "$(DATABASE_URL)" -f migrations/001_init.sql
-	psql "$(DATABASE_URL)" -f migrations/002_better_auth.sql
-	psql "$(DATABASE_URL)" -f migrations/003_platform_extras.sql
+	chmod +x scripts/migrate.sh
+	./scripts/migrate.sh migrations
+
+helm-sync:
+	mkdir -p $(HELM_MIG_DIR)
+	rsync -a --delete --include='*.sql' --exclude='*' migrations/ $(HELM_MIG_DIR)/
+	cp scripts/migrate.sh $(HELM_MIG_DIR)/migrate.sh
+	chmod +x $(HELM_MIG_DIR)/migrate.sh
+
+helm-sync-check: helm-sync
+	@git diff --exit-code -- $(HELM_MIG_DIR) || \
+	  (echo "Helm migrations out of sync — run make helm-sync and commit"; exit 1)
 
 tidy:
 	go mod tidy

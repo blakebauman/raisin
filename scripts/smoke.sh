@@ -91,6 +91,17 @@ echo "$CT" | grep -q "smoke-$STAMP@example.com"
 CT_ID=$(echo "$CT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts/$CT_ID" | grep -q first_name
 
+echo "== topics =="
+TPIC=$(curl -sf -X POST "$API/topics" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"name\":\"smoke-$STAMP\",\"description\":\"smoke\",\"default_subscription\":\"opt_in\"}")
+echo "$TPIC" | grep -q "smoke-$STAMP"
+TPIC_ID=$(echo "$TPIC" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/topics" | grep -q "smoke-$STAMP"
+curl -sf -X DELETE "$API/topics/$TPIC_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" \
+  | grep -q '"deleted":true'
+
 echo "== api keys list =="
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/api-keys" | grep -q '"data"'
 

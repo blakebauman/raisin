@@ -5,4 +5,4 @@ metadata:
   labels:
     app.kubernetes.io/name: raisin
 data:
-{{ (.Files.Glob "files/migrations/*.sql").AsConfig | indent 2 }}
+{{ (.Files.Glob "files/migrations/*").AsConfig | indent 2 }}

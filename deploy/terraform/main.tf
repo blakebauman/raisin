@@ -196,6 +196,16 @@ output "sqs_events_queue_url" {
   value = module.ses.sqs_queue_url
 }
 
+output "sns_topic_arn" {
+  value       = module.ses.sns_topic_arn
+  description = "SES event SNS topic — set Helm config.SES_SNS_TOPIC_ARN"
+}
+
+output "inbound_sns_topic_arn" {
+  value       = module.ses.inbound_sns_topic_arn
+  description = "Inbound mail SNS topic (receipt notifications)"
+}
+
 output "app_irsa_role_arn" {
   value       = module.eks.app_role_arn
   description = "Annotate raisin-api / raisin-worker ServiceAccounts with this role ARN"

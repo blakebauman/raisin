@@ -37,12 +37,8 @@ spec:
           args:
             - |
               set -euo pipefail
-              echo "Running Raisin migrations…"
-              for f in /migrations/*.sql; do
-                echo "==> $f"
-                psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
-              done
-              echo "Migrations complete."
+              chmod +x /migrations/migrate.sh
+              /migrations/migrate.sh /migrations
       volumes:
         - name: migrations
           configMap:

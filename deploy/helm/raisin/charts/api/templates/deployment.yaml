@@ -32,10 +32,8 @@ spec:
           args:
             - |
               set -euo pipefail
-              for f in /migrations/*.sql; do
-                echo "==> $f"
-                psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
-              done
+              chmod +x /migrations/migrate.sh
+              /migrations/migrate.sh /migrations
       {{- end }}
       containers:
         - name: api

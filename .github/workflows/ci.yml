@@ -126,9 +126,8 @@ jobs:
           go-version: "1.26"
       - name: Migrate
         run: |
-          PGPASSWORD=raisin psql -h localhost -U raisin -d raisin -f migrations/001_init.sql
-          PGPASSWORD=raisin psql -h localhost -U raisin -d raisin -f migrations/002_better_auth.sql
-          PGPASSWORD=raisin psql -h localhost -U raisin -d raisin -f migrations/003_platform_extras.sql
+          chmod +x scripts/migrate.sh
+          DATABASE_URL=postgres://raisin:raisin@localhost:5432/raisin?sslmode=disable ./scripts/migrate.sh
       - name: Run API + worker
         env:
           DATABASE_URL: postgres://raisin:raisin@localhost:5432/raisin?sslmode=disable
@@ -157,6 +156,7 @@ jobs:
           version: v3.16.2
       - name: Lint chart
         run: |
+          make helm-sync-check
           helm dependency update deploy/helm/raisin
           helm lint deploy/helm/raisin
           helm template raisin deploy/helm/raisin \
@@ -174,6 +174,12 @@ jobs:
             --set secrets.REDIS_URL=redis://redis:6379 \
             --set api.migrateInit.enabled=true \
             | grep -q raisin-migrations
+          helm template raisin deploy/helm/raisin \
+            --set secrets.DATABASE_URL=postgres://raisin:x@db/raisin \
+            --set secrets.JWT_SECRET=ci \
+            --set secrets.REDIS_URL=redis://redis:6379 \
+            --set api.migrateInit.enabled=true \
+            | grep -q migrate.sh
 
   images:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
