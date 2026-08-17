@@ -14,6 +14,7 @@ import (
 	"github.com/blakebauman/raisin/internal/billing"
 	"github.com/blakebauman/raisin/internal/config"
 	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/snsverify"
 	"github.com/blakebauman/raisin/internal/suppression"
 	"github.com/blakebauman/raisin/internal/webhook"
 )
@@ -45,14 +46,18 @@ type SESEvent struct {
 }
 
 func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
-	// SNS may wrap the message
-	var envelope struct {
-		Type    string `json:"Type"`
-		Message string `json:"Message"`
-	}
+	// SNS may wrap the message — require a valid signature when Type is set
+	var envelope snsverify.Envelope
 	body := raw
-	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Type == "Notification" && envelope.Message != "" {
-		body = []byte(envelope.Message)
+	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Type != "" {
+		if err := snsverify.Verify(envelope); err != nil {
+			return fmt.Errorf("sns verify: %w", err)
+		}
+		if envelope.Type == "Notification" && envelope.Message != "" {
+			body = []byte(envelope.Message)
+		} else {
+			return nil
+		}
 	}
 
 	var ev SESEvent

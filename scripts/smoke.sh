@@ -65,6 +65,17 @@ curl -sf -X POST "$API/inbound/ses" \
   -d '{"team_id":"00000000-0000-0000-0000-000000000001","from":"someone@elsewhere.com","to":["inbox@acme.test"],"subject":"Inbound","text":"hi"}' \
   | grep -q '"from"'
 
+echo "== inbound rejects unsigned SNS =="
+CODE=$(curl -s -o /tmp/raisin-sns-reject.json -w "%{http_code}" -X POST "$API/inbound/ses" \
+  -H "Content-Type: application/json" -H "User-Agent: $UA" \
+  -d '{"Type":"Notification","Message":"{}","MessageId":"x","TopicArn":"arn:aws:sns:us-east-1:1:t","Timestamp":"2020-01-01T00:00:00.000Z"}')
+if [[ "$CODE" != "403" ]]; then
+  echo "expected 403 for unsigned SNS, got $CODE" >&2
+  cat /tmp/raisin-sns-reject.json >&2
+  exit 1
+fi
+grep -q invalid_sns_signature /tmp/raisin-sns-reject.json
+
 echo "== received =="
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/received" | grep -q '"data"'
 
@@ -135,6 +146,23 @@ AU_ID=$(echo "$AU" | python3 -c "import sys,json; print(json.load(sys.stdin)['id
 curl -sf -X PATCH "$API/automations/$AU_ID" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
   -d '{"enabled":true}' | grep -q '"enabled":true'
+AU_CT=$(curl -sf -X POST "$API/contacts" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"email\":\"auto-$STAMP@example.com\",\"first_name\":\"Auto\"}")
+echo "$AU_CT" | grep -q "auto-$STAMP@example.com"
+RUN_OK=0
+for i in $(seq 1 20); do
+  RUNS=$(curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/automations/$AU_ID/runs" || true)
+  if echo "$RUNS" | grep -q '"status"'; then
+    RUN_OK=1
+    break
+  fi
+  sleep 0.5
+done
+if [[ "$RUN_OK" != "1" ]]; then
+  echo "automation run not created" >&2
+  exit 1
+fi
 
 echo "== ip pools =="
 curl -sf -X POST "$API/ip-pools" \

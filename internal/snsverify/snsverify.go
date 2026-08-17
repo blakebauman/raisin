@@ -36,21 +36,16 @@ type Envelope struct {
 	Token            string `json:"Token"`
 }
 
-// Verify checks an SNS envelope signature. Returns nil when valid.
-// When Signature/SigningCertURL are empty (local direct JSON), returns nil.
+// Verify checks an SNS envelope signature. Empty Signature/SigningCertURL is invalid.
 func Verify(e Envelope) error {
 	if e.Signature == "" || e.SigningCertURL == "" {
-		return nil
+		return fmt.Errorf("missing SNS signature fields")
 	}
 	if e.SignatureVersion != "" && e.SignatureVersion != "1" {
 		return fmt.Errorf("unsupported SignatureVersion %q", e.SignatureVersion)
 	}
-	u, err := url.Parse(e.SigningCertURL)
-	if err != nil {
+	if err := assertAWSCertURL(e.SigningCertURL); err != nil {
 		return err
-	}
-	if u.Scheme != "https" || !strings.HasSuffix(u.Host, ".amazonaws.com") {
-		return fmt.Errorf("invalid SigningCertURL host")
 	}
 	cert, err := fetchCert(e.SigningCertURL)
 	if err != nil {
@@ -68,6 +63,53 @@ func Verify(e Envelope) error {
 	sum := sha1.Sum([]byte(canonical))
 	if err := rsa.VerifyPKCS1v15(pub, crypto.SHA1, sum[:], sig); err != nil {
 		return fmt.Errorf("sns signature invalid: %w", err)
+	}
+	return nil
+}
+
+// ConfirmSubscribe GETs SubscribeURL after validating it is an AWS SNS HTTPS URL.
+func ConfirmSubscribe(subscribeURL string) error {
+	if err := assertAWSSubscribeURL(subscribeURL); err != nil {
+		return err
+	}
+	resp, err := httpClient.Get(subscribeURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("subscribe confirmation HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func assertAWSCertURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "https" || !strings.HasSuffix(strings.ToLower(u.Host), ".amazonaws.com") {
+		return fmt.Errorf("invalid SigningCertURL host")
+	}
+	return nil
+}
+
+func assertAWSSubscribeURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	host := strings.ToLower(u.Host)
+	if u.Scheme != "https" {
+		return fmt.Errorf("invalid SubscribeURL scheme")
+	}
+	// sns.<region>.amazonaws.com or sns.amazonaws.com
+	if host != "sns.amazonaws.com" && !strings.HasPrefix(host, "sns.") {
+		return fmt.Errorf("invalid SubscribeURL host")
+	}
+	if !strings.HasSuffix(host, ".amazonaws.com") {
+		return fmt.Errorf("invalid SubscribeURL host")
 	}
 	return nil
 }

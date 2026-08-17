@@ -233,35 +233,64 @@ func oauthScopeAllowed(method, path string, scopes []string) bool {
 			return true
 		}
 	}
-	need := ""
-	switch {
-	case strings.HasPrefix(path, "/emails") && method == http.MethodPost:
-		need = "emails:send"
-	case strings.HasPrefix(path, "/emails"):
-		need = "emails:read"
-	case strings.HasPrefix(path, "/domains"):
-		need = "domains:read"
-	case strings.HasPrefix(path, "/contacts"):
-		need = "contacts:read"
-	case strings.HasPrefix(path, "/templates"):
-		need = "templates:read"
-	case strings.HasPrefix(path, "/automations"):
-		need = "automations:read"
-	case strings.HasPrefix(path, "/ip-pools"):
-		need = "ips:read"
-	default:
-		return true // allow other routes unless we define tighter scopes later
+	need := oauthRequiredScope(method, path)
+	if need == "" {
+		// Unscoped surface (webhooks, broadcasts, api-keys, billing, …) requires full_access
+		return false
 	}
 	for _, s := range scopes {
 		if s == need {
 			return true
 		}
-		// write scopes imply read
-		if need == "emails:read" && s == "emails:send" {
+		if writeImpliesRead(need, s) {
 			return true
 		}
 	}
 	return false
+}
+
+func oauthRequiredScope(method, path string) string {
+	mutating := method == http.MethodPost || method == http.MethodPatch || method == http.MethodPut || method == http.MethodDelete
+	switch {
+	case strings.HasPrefix(path, "/emails") && method == http.MethodPost && !strings.Contains(path, "/received"):
+		return "emails:send"
+	case strings.HasPrefix(path, "/emails"):
+		return "emails:read"
+	case strings.HasPrefix(path, "/domains") && mutating:
+		return "domains:write"
+	case strings.HasPrefix(path, "/domains"):
+		return "domains:read"
+	case strings.HasPrefix(path, "/contacts") && mutating:
+		return "contacts:write"
+	case strings.HasPrefix(path, "/contacts"), strings.HasPrefix(path, "/segments"), strings.HasPrefix(path, "/topics"), strings.HasPrefix(path, "/contact-properties"):
+		return "contacts:read"
+	case strings.HasPrefix(path, "/templates") && mutating:
+		return "templates:write"
+	case strings.HasPrefix(path, "/templates"):
+		return "templates:read"
+	case strings.HasPrefix(path, "/automations") && mutating:
+		return "automations:write"
+	case strings.HasPrefix(path, "/automations"):
+		return "automations:read"
+	case strings.HasPrefix(path, "/ip-pools") && mutating:
+		return "ips:write"
+	case strings.HasPrefix(path, "/ip-pools"):
+		return "ips:read"
+	default:
+		return ""
+	}
+}
+
+func writeImpliesRead(need, have string) bool {
+	pairs := map[string]string{
+		"emails:read":      "emails:send",
+		"domains:read":     "domains:write",
+		"contacts:read":    "contacts:write",
+		"templates:read":   "templates:write",
+		"automations:read": "automations:write",
+		"ips:read":         "ips:write",
+	}
+	return pairs[need] == have
 }
 
 
@@ -317,7 +346,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 }
 
 func (s *Server) rateLimit(next http.Handler) http.Handler {
-	const limit = 10
+	const limit = 60
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		team := auth.TeamFromContext(r.Context())
 		if team == nil || s.Redis == nil {

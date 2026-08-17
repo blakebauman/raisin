@@ -11,12 +11,22 @@ type Automation = {
   steps?: { position: number; type: string; config: unknown }[];
 };
 
+type Run = {
+  id: string;
+  automation_id: string;
+  status: string;
+  current_step: number;
+  created_at: string;
+};
+
 export default function AutomationsPage() {
   const [list, setList] = useState<Automation[]>([]);
   const [name, setName] = useState("Welcome sequence");
   const [trigger, setTrigger] = useState("contact.created");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [runsFor, setRunsFor] = useState<string | null>(null);
+  const [runs, setRuns] = useState<Run[]>([]);
 
   async function load() {
     const res = await apiFetch<{ data: Automation[] }>("/automations");
@@ -75,9 +85,27 @@ export default function AutomationsPage() {
     setBusy(id);
     try {
       await apiFetch(`/automations/${id}`, { method: "DELETE" });
+      if (runsFor === id) {
+        setRunsFor(null);
+        setRuns([]);
+      }
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function loadRuns(id: string) {
+    setBusy(id);
+    setRunsFor(id);
+    try {
+      const res = await apiFetch<{ data: Run[] }>(`/automations/${id}/runs`);
+      setRuns(res.data ?? []);
+    } catch (err: unknown) {
+      setMsg(err instanceof Error ? err.message : "failed");
+      setRuns([]);
     } finally {
       setBusy(null);
     }
@@ -112,31 +140,59 @@ export default function AutomationsPage() {
       </form>
       <ul className="space-y-2">
         {list.map((a) => (
-          <li key={a.id} className="flex items-center justify-between gap-4 rounded-lg border border-zinc-800 px-4 py-3 text-sm">
-            <div>
-              <div className="text-zinc-100">{a.name}</div>
-              <div className="text-xs text-zinc-500 mt-0.5">
-                {a.trigger_type} · {a.enabled ? "enabled" : "disabled"} · {(a.steps || []).length} steps
+          <li key={a.id} className="rounded-lg border border-zinc-800 px-4 py-3 text-sm">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-zinc-100">{a.name}</div>
+                <div className="text-xs text-zinc-500 mt-0.5">
+                  {a.trigger_type} · {a.enabled ? "enabled" : "disabled"} · {(a.steps || []).length} steps
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy === a.id}
+                  onClick={() => loadRuns(a.id)}
+                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-50"
+                >
+                  Runs
+                </button>
+                <button
+                  type="button"
+                  disabled={busy === a.id}
+                  onClick={() => toggle(a)}
+                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-50"
+                >
+                  {a.enabled ? "Disable" : "Enable"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy === a.id}
+                  onClick={() => remove(a.id)}
+                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-900 disabled:opacity-50"
+                >
+                  Delete
+                </button>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={busy === a.id}
-                onClick={() => toggle(a)}
-                className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-50"
-              >
-                {a.enabled ? "Disable" : "Enable"}
-              </button>
-              <button
-                type="button"
-                disabled={busy === a.id}
-                onClick={() => remove(a.id)}
-                className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-900 disabled:opacity-50"
-              >
-                Delete
-              </button>
-            </div>
+            {runsFor === a.id && (
+              <div className="mt-3 border-t border-zinc-800 pt-3">
+                {runs.length === 0 ? (
+                  <p className="text-xs text-zinc-500">No runs yet.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {runs.map((r) => (
+                      <li key={r.id} className="flex justify-between text-xs text-zinc-400 font-mono">
+                        <span>
+                          {r.status} · step {r.current_step}
+                        </span>
+                        <span>{new Date(r.created_at).toLocaleString()}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </li>
         ))}
       </ul>

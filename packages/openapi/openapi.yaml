@@ -384,6 +384,31 @@ paths:
       responses:
         '200':
           description: OK
+  /contacts/{id}/segments/{segmentId}:
+    post:
+      summary: Add contact to segment
+      operationId: addContactToSegment
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: segmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Remove contact from segment
+      operationId: removeContactFromSegment
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: segmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
   /contact-properties:
     post:
       summary: Create contact property
@@ -798,6 +823,19 @@ paths:
     get:
       summary: List OAuth apps
       operationId: listOAuthApps
+      responses:
+        '200':
+          description: OK
+  /oauth/apps/public:
+    get:
+      summary: Public OAuth app metadata (consent UI)
+      security: []
+      operationId: oauthPublicApp
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema: { type: string }
       responses:
         '200':
           description: OK

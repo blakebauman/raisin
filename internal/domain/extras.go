@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/sender"
 	"github.com/google/uuid"
 )
 
@@ -50,8 +52,8 @@ func (s *Service) Claim(ctx context.Context, teamID, id uuid.UUID) (*Domain, err
 	return s.Get(ctx, teamID, id)
 }
 
-// ConfirmClaim marks the domain claimed after the challenge TXT is present.
-// Local/stub: succeeds when claim_token is set. SES deployments should verify DNS TXT.
+// ConfirmClaim marks the domain claimed after the challenge TXT is present in DNS
+// (stub identity skips live lookup for local/dev).
 func (s *Service) ConfirmClaim(ctx context.Context, teamID, id uuid.UUID) (*Domain, error) {
 	d, err := s.Get(ctx, teamID, id)
 	if err != nil {
@@ -72,13 +74,32 @@ func (s *Service) ConfirmClaim(ctx context.Context, teamID, id uuid.UUID) (*Doma
 	if taken {
 		return nil, apierr.Validation("domain is already claimed by another team")
 	}
-	// Require the Claim TXT record to still be pending/verified in our checklist
 	var claimRecs int
 	_ = s.Pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM domain_records WHERE domain_id = $1 AND record_type = 'Claim'
 	`, id).Scan(&claimRecs)
 	if claimRecs == 0 {
 		return nil, apierr.Validation("claim TXT record missing — call /claim first")
+	}
+	// SES/production: require live DNS TXT. Local stub identity skips the lookup.
+	if _, stub := s.Identity.(sender.StubIdentity); !stub {
+		host := "_raisin-challenge." + d.Name
+		txts, lookupErr := net.LookupTXT(host)
+		if lookupErr != nil {
+			return nil, apierr.Validation("claim TXT not found in DNS yet")
+		}
+		found := false
+		want := *token
+		for _, t := range txts {
+			t = strings.Trim(t, `"`)
+			if t == want || strings.Contains(t, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, apierr.Validation("claim TXT does not match challenge token")
+		}
 	}
 	_, err = s.Pool.Exec(ctx, `
 		UPDATE domains SET claimed_at = now(), updated_at = now() WHERE id = $1 AND team_id = $2

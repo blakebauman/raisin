@@ -74,10 +74,9 @@ func (s *Server) inboundSES(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if envelope.Type == "SubscriptionConfirmation" && envelope.SubscribeURL != "" {
-			resp, err := http.Get(envelope.SubscribeURL)
-			if err == nil {
-				_, _ = io.Copy(io.Discard, resp.Body)
-				resp.Body.Close()
+			if err := snsverify.ConfirmSubscribe(envelope.SubscribeURL); err != nil {
+				apierr.Write(w, apierr.New(403, "invalid_subscribe_url", err.Error()))
+				return
 			}
 			apierr.WriteJSON(w, 200, map[string]string{"status": "subscribed"})
 			return
