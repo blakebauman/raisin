@@ -1,0 +1,62 @@
+# Binaries
+bin/
+dist/
+*.exe
+*.test
+
+# Go
+vendor/
+coverage.out
+*.coverprofile
+
+# Node
+node_modules/
+.next/
+.turbo/
+*.tsbuildinfo
+apps/console/.env.local
+packages/sdk-js/dist/
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+dist/
+*.pyc
+
+# Local attachment storage
+.data/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+apps/console/.env.local
+*.pem
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Helm packaged deps
+deploy/helm/**/charts/*.tgz
+
+# sqlc / generated (keep checked in for simplicity)
+# internal/db/generated/
+
+# Docker
+.docker/
+
+# Logs
+*.log

@@ -1,0 +1,15 @@
+dependencies:
+- name: api
+  repository: file://charts/api
+  version: 0.1.0
+- name: worker
+  repository: file://charts/worker
+  version: 0.1.0
+- name: smtp
+  repository: file://charts/smtp
+  version: 0.1.0
+- name: console
+  repository: file://charts/console
+  version: 0.1.0
+digest: sha256:15a75a1a820c901b541fa39b05732160a5dc47c8cd8bae2b436adefd2f9a6076
+generated: "2026-08-16T22:23:49.177222-07:00"

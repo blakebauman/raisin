@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: raisin-config
+  labels:
+    app.kubernetes.io/name: raisin
+data:
+  SENDER_DRIVER: {{ .Values.config.SENDER_DRIVER | quote }}
+  AWS_REGION: {{ .Values.config.AWS_REGION | quote }}
+  SES_CONFIGURATION_SET: {{ .Values.config.SES_CONFIGURATION_SET | quote }}
+  CONSOLE_ORIGIN: {{ .Values.config.CONSOLE_ORIGIN | quote }}
+  TRACKING_BASE_URL: {{ .Values.config.TRACKING_BASE_URL | quote }}
+  SQS_EVENTS_QUEUE_URL: {{ .Values.config.SQS_EVENTS_QUEUE_URL | quote }}
+  S3_BUCKET: {{ .Values.config.S3_BUCKET | quote }}
+  S3_INBOUND_BUCKET: {{ .Values.config.S3_INBOUND_BUCKET | default "" | quote }}
+  STORAGE_DRIVER: {{ .Values.config.STORAGE_DRIVER | quote }}
+  HTTP_ADDR: {{ .Values.config.HTTP_ADDR | quote }}
+  WORKER_ADDR: {{ .Values.config.WORKER_ADDR | quote }}
+  SMTP_ADDR: {{ .Values.config.SMTP_ADDR | quote }}
+  DEFAULT_MONTHLY_QUOTA: {{ .Values.config.DEFAULT_MONTHLY_QUOTA | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: raisin-secrets
+  labels:
+    app.kubernetes.io/name: raisin
+type: Opaque
+stringData:
+  DATABASE_URL: {{ .Values.secrets.DATABASE_URL | quote }}
+  REDIS_URL: {{ .Values.secrets.REDIS_URL | quote }}
+  JWT_SECRET: {{ .Values.secrets.JWT_SECRET | quote }}
+  STRIPE_SECRET_KEY: {{ .Values.secrets.STRIPE_SECRET_KEY | quote }}
+  STRIPE_WEBHOOK_SECRET: {{ .Values.secrets.STRIPE_WEBHOOK_SECRET | quote }}
+  BETTER_AUTH_SECRET: {{ .Values.secrets.BETTER_AUTH_SECRET | quote }}

@@ -1,0 +1,665 @@
+openapi: 3.0.3
+info:
+  title: Raisin Email API
+  version: 1.0.0
+  description: |
+    Developer email API for raisin.run — clean REST surface powered by Amazon SES.
+    Auth: `Authorization: Bearer ra_…` and a `User-Agent` header.
+    Authenticated responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`.
+servers:
+  - url: https://api.raisin.run
+  - url: http://localhost:18080
+security:
+  - bearerAuth: []
+paths:
+  /emails:
+    post:
+      summary: Send an email
+      operationId: sendEmail
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailRequest'
+      responses:
+        '200':
+          description: Queued
+          headers:
+            X-RateLimit-Limit:
+              schema: { type: integer }
+            X-RateLimit-Remaining:
+              schema: { type: integer }
+            X-RateLimit-Reset:
+              schema: { type: integer, description: Unix epoch seconds }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Email'
+    get:
+      summary: List emails
+      operationId: listEmails
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Email'
+                  next_cursor: { type: string }
+  /emails/batch:
+    post:
+      summary: Send up to 100 emails
+      operationId: sendBatchEmails
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/SendEmailRequest'
+      responses:
+        '200':
+          description: OK
+  /emails/{id}:
+    get:
+      summary: Retrieve email
+      operationId: getEmail
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Email'
+    patch:
+      summary: Update scheduled email
+      operationId: updateEmail
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /emails/{id}/cancel:
+    post:
+      summary: Cancel scheduled email
+      operationId: cancelEmail
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /emails/{id}/attachments:
+    get:
+      summary: List attachments
+      operationId: listEmailAttachments
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /emails/{id}/attachments/{attachmentId}:
+    get:
+      summary: Get attachment (base64 content)
+      operationId: getEmailAttachment
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+  /emails/{id}/events:
+    get:
+      summary: List email events
+      operationId: listEmailEvents
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /emails/received:
+    get:
+      summary: List inbound emails
+      operationId: listReceivedEmails
+      responses:
+        '200':
+          description: OK
+  /emails/received/{id}:
+    get:
+      summary: Get inbound email
+      operationId: getReceivedEmail
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /emails/metrics:
+    get:
+      summary: Email metrics
+      operationId: getEmailMetrics
+      responses:
+        '200':
+          description: OK
+  /domains:
+    post:
+      summary: Create domain
+      operationId: createDomain
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                region: { type: string }
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List domains
+      operationId: listDomains
+      responses:
+        '200':
+          description: OK
+  /domains/{id}:
+    get:
+      summary: Get domain
+      operationId: getDomain
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    patch:
+      summary: Update domain tracking
+      operationId: updateDomain
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete domain
+      operationId: deleteDomain
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /domains/{id}/verify:
+    post:
+      summary: Verify domain DNS
+      operationId: verifyDomain
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /api-keys:
+    post:
+      summary: Create API key
+      operationId: createApiKey
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List API keys
+      operationId: listApiKeys
+      responses:
+        '200':
+          description: OK
+  /api-keys/{id}:
+    delete:
+      summary: Delete API key
+      operationId: deleteApiKey
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /webhooks:
+    post:
+      summary: Create webhook
+      operationId: createWebhook
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List webhooks
+      operationId: listWebhooks
+      responses:
+        '200':
+          description: OK
+  /webhooks/{id}:
+    get:
+      summary: Get webhook
+      operationId: getWebhook
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    patch:
+      summary: Update webhook
+      operationId: updateWebhook
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete webhook
+      operationId: deleteWebhook
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /webhooks/{id}/events:
+    get:
+      summary: List webhook delivery events
+      operationId: listWebhookEvents
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /webhooks/{id}/events/{eventId}/attempts:
+    get:
+      summary: List delivery attempts for a webhook event
+      operationId: listWebhookAttempts
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: eventId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+  /team:
+    get:
+      summary: Get current team
+      operationId: getTeam
+      responses:
+        '200':
+          description: OK
+    patch:
+      summary: Update team (name, test_mode)
+      operationId: updateTeam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                test_mode: { type: boolean }
+      responses:
+        '200':
+          description: OK
+  /suppressions:
+    post:
+      summary: Add suppression
+      operationId: addSuppression
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List suppressions
+      operationId: listSuppressions
+      responses:
+        '200':
+          description: OK
+  /suppressions/batch:
+    post:
+      summary: Add suppressions in batch
+      operationId: addSuppressionsBatch
+      responses:
+        '200':
+          description: OK
+  /suppressions/{id}:
+    delete:
+      summary: Remove suppression
+      operationId: removeSuppression
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /contacts:
+    post:
+      summary: Create contact
+      operationId: createContact
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List contacts
+      operationId: listContacts
+      responses:
+        '200':
+          description: OK
+  /contacts/{id}:
+    get:
+      summary: Get contact
+      operationId: getContact
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    patch:
+      summary: Update contact
+      operationId: updateContact
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete contact
+      operationId: deleteContact
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /contact-properties:
+    post:
+      summary: Create contact property
+      operationId: createContactProperty
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List contact properties
+      operationId: listContactProperties
+      responses:
+        '200':
+          description: OK
+  /segments:
+    post:
+      summary: Create segment
+      operationId: createSegment
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List segments
+      operationId: listSegments
+      responses:
+        '200':
+          description: OK
+  /topics:
+    post:
+      summary: Create topic
+      operationId: createTopic
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List topics
+      operationId: listTopics
+      responses:
+        '200':
+          description: OK
+  /templates:
+    post:
+      summary: Create template
+      operationId: createTemplate
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List templates
+      operationId: listTemplates
+      responses:
+        '200':
+          description: OK
+  /templates/{id}:
+    get:
+      summary: Get template
+      operationId: getTemplate
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    patch:
+      summary: Update template
+      operationId: updateTemplate
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete template
+      operationId: deleteTemplate
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /templates/{id}/publish:
+    post:
+      summary: Publish template
+      operationId: publishTemplate
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /broadcasts:
+    post:
+      summary: Create broadcast
+      operationId: createBroadcast
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List broadcasts
+      operationId: listBroadcasts
+      responses:
+        '200':
+          description: OK
+  /broadcasts/{id}/send:
+    post:
+      summary: Send broadcast
+      operationId: sendBroadcast
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /broadcasts/{id}:
+    get:
+      summary: Get broadcast
+      operationId: getBroadcast
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete broadcast
+      operationId: deleteBroadcast
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /broadcasts/{id}/cancel:
+    post:
+      summary: Cancel broadcast
+      operationId: cancelBroadcast
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /usage:
+    get:
+      summary: Current usage
+      operationId: getUsage
+      responses:
+        '200':
+          description: OK
+  /billing/checkout:
+    post:
+      summary: Create Stripe Checkout session
+      operationId: createCheckout
+      responses:
+        '200':
+          description: OK
+  /billing/webhook:
+    post:
+      summary: Stripe webhook
+      security: []
+      operationId: stripeWebhook
+      responses:
+        '200':
+          description: OK
+  /logs:
+    get:
+      summary: API logs
+      operationId: listLogs
+      responses:
+        '200':
+          description: OK
+  /logs/{id}:
+    get:
+      summary: Get API log
+      operationId: getLog
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /console/token:
+    post:
+      summary: Mint demo team JWT (dev)
+      security: []
+      operationId: consoleToken
+      responses:
+        '200':
+          description: OK
+  /console/provision:
+    post:
+      summary: Provision team JWT for console user
+      security: []
+      operationId: consoleProvision
+      responses:
+        '200':
+          description: OK
+  /inbound/ses:
+    post:
+      summary: SES inbound SNS webhook
+      security: []
+      operationId: inboundSes
+      responses:
+        '200':
+          description: OK
+  /health:
+    get:
+      summary: Health check
+      security: []
+      operationId: health
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    SendEmailRequest:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string }
+        to:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+        cc:
+          type: array
+          items: { type: string }
+        bcc:
+          type: array
+          items: { type: string }
+        reply_to:
+          type: array
+          items: { type: string }
+        subject: { type: string }
+        html: { type: string }
+        text: { type: string }
+        scheduled_at: { type: string, format: date-time }
+        template_id: { type: string, format: uuid }
+        tags:
+          type: object
+          additionalProperties: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        attachments:
+          type: array
+          items:
+            type: object
+            properties:
+              filename: { type: string }
+              content_type: { type: string }
+              content: { type: string, description: base64 }
+              content_id: { type: string }
+    Email:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        from: { type: string }
+        to:
+          type: array
+          items: { type: string }
+        subject: { type: string }
+        status: { type: string }
+        created_at: { type: string, format: date-time }
+    Webhook:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        endpoint: { type: string }
+        events:
+          type: array
+          items: { type: string }
+        signing_secret:
+          type: string
+          description: Only returned on create — store immediately
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }

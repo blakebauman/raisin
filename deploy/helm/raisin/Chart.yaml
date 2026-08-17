@@ -1,0 +1,19 @@
+apiVersion: v2
+name: raisin
+description: Raisin email platform umbrella chart
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+dependencies:
+  - name: api
+    version: 0.1.0
+    repository: "file://charts/api"
+  - name: worker
+    version: 0.1.0
+    repository: "file://charts/worker"
+  - name: smtp
+    version: 0.1.0
+    repository: "file://charts/smtp"
+  - name: console
+    version: 0.1.0
+    repository: "file://charts/console"

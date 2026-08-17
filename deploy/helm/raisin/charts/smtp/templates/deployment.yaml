@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raisin-smtp
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: raisin-smtp
+  template:
+    metadata:
+      labels:
+        app: raisin-smtp
+    spec:
+      serviceAccountName: raisin-smtp
+      containers:
+        - name: smtp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          envFrom:
+            - secretRef:
+                name: raisin-secrets
+            - configMapRef:
+                name: raisin-config
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          startupProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            failureThreshold: 30
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: raisin-smtp
+spec:
+  type: LoadBalancer
+  selector:
+    app: raisin-smtp
+  ports:
+    - port: 25
+      targetPort: {{ .Values.service.port }}
+      name: smtp
+    - port: 587
+      targetPort: {{ .Values.service.port }}
+      name: submission

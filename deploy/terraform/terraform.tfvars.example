@@ -1,0 +1,7 @@
+# Example tfvars — do not commit real secrets
+aws_region  = "us-east-1"
+project     = "raisin"
+environment = "prod"
+domain      = "raisin.run"
+# inbound_webhook_url = "https://api.raisin.run/inbound/ses"
+# db_password = "set via TF_VAR_db_password or -var"

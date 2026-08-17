@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raisin-console
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: raisin-console
+  template:
+    metadata:
+      labels:
+        app: raisin-console
+    spec:
+      containers:
+        - name: console
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          env:
+            - name: RAISIN_API_URL
+              value: {{ .Values.env.RAISIN_API_URL | default "http://raisin-api" | quote }}
+            - name: NEXT_PUBLIC_API_URL
+              value: {{ .Values.env.NEXT_PUBLIC_API_URL | default "https://api.raisin.run" | quote }}
+            - name: BETTER_AUTH_URL
+              value: {{ .Values.env.BETTER_AUTH_URL | default "https://app.raisin.run" | quote }}
+          envFrom:
+            - secretRef:
+                name: raisin-secrets
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.service.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: raisin-console
+spec:
+  selector:
+    app: raisin-console
+  ports:
+    - port: 80
+      targetPort: {{ .Values.service.port }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: raisin-console
+spec:
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: raisin-console
+                port:
+                  number: 80

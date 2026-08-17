@@ -1,0 +1,78 @@
+global:
+  imageRegistry: ""
+  domain: raisin.run
+  # terraform output -raw app_irsa_role_arn
+  irsaRoleArn: ""
+
+networkPolicy:
+  enabled: true
+
+api:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/raisin-run/raisin-api
+    tag: latest
+  service:
+    port: 8080
+  ingress:
+    host: api.raisin.run
+
+worker:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/raisin-run/raisin-worker
+    tag: latest
+  service:
+    port: 8081
+  ingress:
+    host: t.raisin.run
+
+smtp:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/raisin-run/raisin-smtp
+    tag: latest
+  service:
+    port: 2525
+  ingress:
+    host: smtp.raisin.run
+
+console:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/raisin-run/raisin-console
+    tag: latest
+  service:
+    port: 3000
+  ingress:
+    host: app.raisin.run
+  env:
+    RAISIN_API_URL: http://raisin-api
+    NEXT_PUBLIC_API_URL: https://api.raisin.run
+    BETTER_AUTH_URL: https://app.raisin.run
+
+# Non-secret runtime config → ConfigMap raisin-config
+# Wire SQS_EVENTS_QUEUE_URL from: terraform output -raw sqs_events_queue_url
+config:
+  SENDER_DRIVER: ses
+  AWS_REGION: us-east-1
+  SES_CONFIGURATION_SET: raisin-prod-events
+  CONSOLE_ORIGIN: https://app.raisin.run
+  TRACKING_BASE_URL: https://t.raisin.run
+  SQS_EVENTS_QUEUE_URL: ""
+  S3_BUCKET: raisin-prod-attachments
+  S3_INBOUND_BUCKET: raisin-prod-inbound
+  STORAGE_DRIVER: s3
+  HTTP_ADDR: ":8080"
+  WORKER_ADDR: ":8081"
+  SMTP_ADDR: ":2525"
+  DEFAULT_MONTHLY_QUOTA: "100000"
+
+# Sensitive values → Secret raisin-secrets (override via --set / sealed-secrets / ExternalSecrets)
+secrets:
+  DATABASE_URL: ""
+  REDIS_URL: ""
+  JWT_SECRET: ""
+  STRIPE_SECRET_KEY: ""
+  STRIPE_WEBHOOK_SECRET: ""
+  BETTER_AUTH_SECRET: ""

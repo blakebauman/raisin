@@ -1,0 +1,401 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
+	"github.com/raisin-run/raisin/internal/auth"
+	"github.com/raisin-run/raisin/internal/billing"
+	"github.com/raisin-run/raisin/internal/config"
+	"github.com/raisin-run/raisin/internal/db"
+	"github.com/raisin-run/raisin/internal/domain"
+	"github.com/raisin-run/raisin/internal/email"
+	"github.com/raisin-run/raisin/internal/events"
+	"github.com/raisin-run/raisin/internal/jobs"
+	"github.com/raisin-run/raisin/internal/sender"
+	"github.com/raisin-run/raisin/internal/storage"
+	"github.com/raisin-run/raisin/internal/tracking"
+	"github.com/raisin-run/raisin/internal/webhook"
+)
+
+type Handlers struct {
+	Cfg      config.Config
+	Pool     *db.Pool
+	Sender   sender.Sender
+	Webhooks *webhook.Service
+	Billing  *billing.Service
+	Events   *events.Processor
+	Asynq    *asynq.Client
+	Storage  storage.Store
+	Domains  *domain.Service
+}
+
+func (h *Handlers) Mux() *asynq.ServeMux {
+	mux := asynq.NewServeMux()
+	mux.HandleFunc(jobs.TypeEmailSend, h.HandleEmailSend)
+	mux.HandleFunc(jobs.TypeWebhookDeliver, h.HandleWebhookDeliver)
+	mux.HandleFunc(jobs.TypeBroadcastSend, h.HandleBroadcastSend)
+	mux.HandleFunc(jobs.TypeDomainVerify, h.HandleDomainVerify)
+	return mux
+}
+
+func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
+	var p jobs.EmailSendPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return err
+	}
+	emailID, err := uuid.Parse(p.EmailID)
+	if err != nil {
+		return err
+	}
+	teamID, err := uuid.Parse(p.TeamID)
+	if err != nil {
+		return err
+	}
+
+	var status, from, subject string
+	var to, cc, bcc, replyTo []string
+	var html, text *string
+	var domainID *uuid.UUID
+	var openTrack, clickTrack bool
+	var templateID *uuid.UUID
+	err = h.Pool.QueryRow(ctx, `
+		SELECT e.status, e.from_addr, e.to_addrs, e.cc_addrs, e.bcc_addrs, e.reply_to,
+		       e.subject, e.html, e.text, e.domain_id, e.template_id,
+		       COALESCE(d.open_tracking, true), COALESCE(d.click_tracking, true)
+		FROM emails e
+		LEFT JOIN domains d ON d.id = e.domain_id
+		WHERE e.id = $1 AND e.team_id = $2
+	`, emailID, teamID).Scan(
+		&status, &from, &to, &cc, &bcc, &replyTo, &subject, &html, &text, &domainID, &templateID, &openTrack, &clickTrack,
+	)
+	if err != nil {
+		return err
+	}
+	if status == "canceled" || status == "sent" || status == "delivered" {
+		return nil
+	}
+
+	htmlBody := ""
+	textBody := ""
+	if html != nil {
+		htmlBody = *html
+	}
+	if text != nil {
+		textBody = *text
+	}
+
+	if templateID != nil && htmlBody == "" {
+		var thtml, tsubj *string
+		_ = h.Pool.QueryRow(ctx, `SELECT html, subject FROM templates WHERE id = $1`, *templateID).Scan(&thtml, &tsubj)
+		if thtml != nil {
+			htmlBody = *thtml
+		}
+		if tsubj != nil && subject == "" {
+			subject = *tsubj
+		}
+	}
+
+	htmlBody = tracking.Inject(htmlBody, emailID, h.Cfg.TrackingBaseURL, openTrack, clickTrack)
+	headers := map[string]string{
+		"List-Unsubscribe":     fmt.Sprintf("<%s/unsubscribe/%s>", h.Cfg.TrackingBaseURL, emailID.String()),
+		"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+	}
+
+	var atts []sender.Attachment
+	rows, err := h.Pool.Query(ctx, `
+		SELECT filename, content_type, s3_key, content_id FROM attachments WHERE email_id = $1
+	`, emailID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var filename, ctype, key string
+		var contentID *string
+		if err := rows.Scan(&filename, &ctype, &key, &contentID); err != nil {
+			return err
+		}
+		var body []byte
+		if h.Storage != nil {
+			body, _, err = h.Storage.Get(ctx, key)
+			if err != nil {
+				return fmt.Errorf("load attachment %s: %w", filename, err)
+			}
+		}
+		cid := ""
+		if contentID != nil {
+			cid = *contentID
+		}
+		atts = append(atts, sender.Attachment{
+			Filename: filename, ContentType: ctype, Content: body, ContentID: cid,
+		})
+	}
+
+	res, err := h.Sender.Send(ctx, sender.Message{
+		From: from, To: to, Cc: cc, Bcc: bcc, ReplyTo: replyTo,
+		Subject: subject, HTML: htmlBody, Text: textBody,
+		Headers: headers, ConfigSet: h.Cfg.SESConfigurationSet,
+		Tags:        map[string]string{"email_id": emailID.String(), "team_id": teamID.String()},
+		Attachments: atts,
+	})
+	if err != nil {
+		_, _ = h.Pool.Exec(ctx, `UPDATE emails SET status = 'failed', updated_at = now() WHERE id = $1`, emailID)
+		_ = h.Events.RecordLocalEvent(ctx, teamID, emailID, "email.failed", map[string]any{"error": err.Error()})
+		return err
+	}
+
+	_, _ = h.Pool.Exec(ctx, `
+		UPDATE emails SET status = 'sent', provider_message_id = $2, sent_at = now(), updated_at = now()
+		WHERE id = $1
+	`, emailID, res.MessageID)
+	_ = h.Billing.IncrementUsage(ctx, teamID, 1)
+	_ = h.Events.RecordLocalEvent(ctx, teamID, emailID, "email.sent", map[string]any{
+		"email_id": emailID.String(), "message_id": res.MessageID, "from": from, "to": to, "subject": subject,
+	})
+
+	// In test/mailpit mode, also emit delivered
+	if h.Cfg.SenderDriver == "mailpit" {
+		_ = h.Events.RecordLocalEvent(ctx, teamID, emailID, "email.delivered", map[string]any{
+			"email_id": emailID.String(), "message_id": res.MessageID,
+		})
+	}
+	return nil
+}
+
+func (h *Handlers) HandleWebhookDeliver(ctx context.Context, t *asynq.Task) error {
+	var p jobs.WebhookDeliverPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return err
+	}
+	id, err := uuid.Parse(p.WebhookEventID)
+	if err != nil {
+		return err
+	}
+	return h.Webhooks.Deliver(ctx, id)
+}
+
+func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error {
+	var p jobs.BroadcastSendPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return err
+	}
+	bid, _ := uuid.Parse(p.BroadcastID)
+	tid, _ := uuid.Parse(p.TeamID)
+
+	var segmentID *uuid.UUID
+	var from, subject string
+	var html, text *string
+	err := h.Pool.QueryRow(ctx, `
+		SELECT segment_id, from_addr, subject, html, text FROM broadcasts WHERE id = $1 AND team_id = $2
+	`, bid, tid).Scan(&segmentID, &from, &subject, &html, &text)
+	if err != nil {
+		return err
+	}
+	_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = 'sending', updated_at = now() WHERE id = $1`, bid)
+
+	htmlBody, textBody := "", ""
+	if html != nil {
+		htmlBody = *html
+	}
+	if text != nil {
+		textBody = *text
+	}
+
+	var contacts []struct {
+		Email string
+	}
+	if segmentID != nil {
+		rows, err := h.Pool.Query(ctx, `
+			SELECT c.email FROM contacts c
+			JOIN segment_members sm ON sm.contact_id = c.id
+			WHERE sm.segment_id = $1 AND c.unsubscribed = FALSE AND c.team_id = $2
+		`, *segmentID, tid)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var e string
+			if err := rows.Scan(&e); err != nil {
+				return err
+			}
+			contacts = append(contacts, struct{ Email string }{e})
+		}
+	} else {
+		// No segment: send to all subscribed contacts on the team
+		rows, err := h.Pool.Query(ctx, `
+			SELECT email FROM contacts
+			WHERE team_id = $1 AND unsubscribed = FALSE
+		`, tid)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var e string
+			if err := rows.Scan(&e); err != nil {
+				return err
+			}
+			contacts = append(contacts, struct{ Email string }{e})
+		}
+	}
+
+	emailSvc := &email.Service{Pool: h.Pool, Client: h.Asynq}
+	team, err := auth.LoadTeam(ctx, h.Pool, tid)
+	if err != nil {
+		return err
+	}
+	for _, c := range contacts {
+		_, err := emailSvc.Send(ctx, team, email.SendRequest{
+			From: from, To: []string{c.Email}, Subject: subject, HTML: htmlBody, Text: textBody,
+		}, "")
+		if err != nil {
+			log.Printf("broadcast send to %s: %v", c.Email, err)
+		}
+	}
+	_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1`, bid)
+	return nil
+}
+
+func (h *Handlers) HandleDomainVerify(ctx context.Context, t *asynq.Task) error {
+	var p jobs.DomainVerifyPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return err
+	}
+	domainID, err := uuid.Parse(p.DomainID)
+	if err != nil {
+		return err
+	}
+	teamID, err := uuid.Parse(p.TeamID)
+	if err != nil {
+		return err
+	}
+	if h.Domains == nil {
+		return nil
+	}
+	_, err = h.Domains.Verify(ctx, teamID, domainID)
+	return err
+}
+
+// TrackingHTTP serves open/click + unsubscribe endpoints on the worker.
+func (h *Handlers) TrackingHTTP() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/t/o/", h.handleOpen)
+	mux.HandleFunc("/t/c/", h.handleClick)
+	mux.HandleFunc("/unsubscribe/", h.handleUnsubscribe)
+	mux.HandleFunc("/test/events/", h.handleTestEvent) // synthesize events in test mode
+	return mux
+}
+
+func (h *Handlers) handleOpen(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Path[len("/t/o/"):]
+	emailID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	var teamID uuid.UUID
+	_ = h.Pool.QueryRow(r.Context(), `SELECT team_id FROM emails WHERE id = $1`, emailID).Scan(&teamID)
+	if teamID != uuid.Nil {
+		_ = h.Events.RecordLocalEvent(r.Context(), teamID, emailID, "email.opened", map[string]any{
+			"email_id": emailID.String(),
+		})
+	}
+	w.Header().Set("Content-Type", "image/gif")
+	// 1x1 transparent GIF
+	_, _ = w.Write([]byte{
+		0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0xff, 0xff, 0xff,
+		0x00, 0x00, 0x00, 0x21, 0xf9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00,
+		0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b,
+	})
+}
+
+func (h *Handlers) handleClick(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Path[len("/t/c/"):]
+	emailID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	dest := r.URL.Query().Get("u")
+	if dest == "" {
+		http.NotFound(w, r)
+		return
+	}
+	decoded, err := url.QueryUnescape(dest)
+	if err != nil {
+		decoded = dest
+	}
+	var teamID uuid.UUID
+	_ = h.Pool.QueryRow(r.Context(), `SELECT team_id FROM emails WHERE id = $1`, emailID).Scan(&teamID)
+	if teamID != uuid.Nil {
+		_ = h.Events.RecordLocalEvent(r.Context(), teamID, emailID, "email.clicked", map[string]any{
+			"email_id": emailID.String(), "link": decoded,
+		})
+	}
+	http.Redirect(w, r, decoded, http.StatusFound)
+}
+
+func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
+	idStr := r.URL.Path[len("/unsubscribe/"):]
+	emailID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	var teamID uuid.UUID
+	var toAddrs []string
+	_ = h.Pool.QueryRow(r.Context(), `SELECT team_id, to_addrs FROM emails WHERE id = $1`, emailID).Scan(&teamID, &toAddrs)
+	for _, a := range toAddrs {
+		_, _ = h.Pool.Exec(r.Context(), `
+			UPDATE contacts SET unsubscribed = TRUE, updated_at = now()
+			WHERE team_id = $1 AND email = lower($2)
+		`, teamID, a)
+	}
+	w.Header().Set("Content-Type", "text/html")
+	_, _ = w.Write([]byte(`<html><body><h1>Unsubscribed</h1><p>You have been unsubscribed.</p></body></html>`))
+}
+
+func (h *Handlers) handleTestEvent(w http.ResponseWriter, r *http.Request) {
+	// POST /test/events/{email_id}?type=email.bounced
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	idStr := r.URL.Path[len("/test/events/"):]
+	emailID, err := uuid.Parse(idStr)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	typ := r.URL.Query().Get("type")
+	if typ == "" {
+		typ = "email.bounced"
+	}
+	var teamID uuid.UUID
+	var testMode bool
+	err = h.Pool.QueryRow(r.Context(), `
+		SELECT e.team_id, t.test_mode FROM emails e JOIN teams t ON t.id = e.team_id WHERE e.id = $1
+	`, emailID).Scan(&teamID, &testMode)
+	if err != nil || !testMode {
+		http.Error(w, "not found or not test mode", 404)
+		return
+	}
+	_ = h.Events.RecordLocalEvent(r.Context(), teamID, emailID, typ, map[string]any{"email_id": emailID.String(), "test": true})
+	w.WriteHeader(200)
+	_, _ = w.Write([]byte(`{"ok":true}`))
+}
+
+var _ = time.Now

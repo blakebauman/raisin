@@ -1,0 +1,212 @@
+package events
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/google/uuid"
+	"github.com/raisin-run/raisin/internal/billing"
+	"github.com/raisin-run/raisin/internal/config"
+	"github.com/raisin-run/raisin/internal/db"
+	"github.com/raisin-run/raisin/internal/suppression"
+	"github.com/raisin-run/raisin/internal/webhook"
+)
+
+type Processor struct {
+	Pool         *db.Pool
+	Webhooks     *webhook.Service
+	Suppressions *suppression.Service
+	Billing      *billing.Service
+}
+
+type SESEvent struct {
+	EventType string `json:"eventType"`
+	Mail      struct {
+		MessageID string              `json:"messageId"`
+		Tags      map[string][]string `json:"tags"`
+	} `json:"mail"`
+	Bounce *struct {
+		BounceType string `json:"bounceType"`
+	} `json:"bounce"`
+	Complaint *struct{} `json:"complaint"`
+	Click     *struct {
+		Link string `json:"link"`
+	} `json:"click"`
+	Open *struct{} `json:"open"`
+}
+
+func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
+	// SNS may wrap the message
+	var envelope struct {
+		Type    string `json:"Type"`
+		Message string `json:"Message"`
+	}
+	body := raw
+	if err := json.Unmarshal(raw, &envelope); err == nil && envelope.Type == "Notification" && envelope.Message != "" {
+		body = []byte(envelope.Message)
+	}
+
+	var ev SESEvent
+	if err := json.Unmarshal(body, &ev); err != nil {
+		return err
+	}
+	if ev.Mail.MessageID == "" {
+		return nil
+	}
+
+	var emailID, teamID uuid.UUID
+	var status string
+	err := p.Pool.QueryRow(ctx, `
+		SELECT id, team_id, status FROM emails WHERE provider_message_id = $1
+	`, ev.Mail.MessageID).Scan(&emailID, &teamID, &status)
+	if err != nil {
+		return nil // unknown message
+	}
+
+	mapped := mapSESType(ev.EventType)
+	newStatus := statusFromEvent(mapped)
+	data, _ := json.Marshal(ev)
+	_, _ = p.Pool.Exec(ctx, `
+		INSERT INTO email_events (team_id, email_id, type, data) VALUES ($1,$2,$3,$4)
+	`, teamID, emailID, mapped, data)
+	if newStatus != "" {
+		_, _ = p.Pool.Exec(ctx, `UPDATE emails SET status = $2, updated_at = now() WHERE id = $1`, emailID, newStatus)
+	}
+
+	if mapped == "email.bounced" || mapped == "email.complained" {
+		var toAddrs []string
+		_ = p.Pool.QueryRow(ctx, `SELECT to_addrs FROM emails WHERE id = $1`, emailID).Scan(&toAddrs)
+		reason := "bounce"
+		if mapped == "email.complained" {
+			reason = "complaint"
+		}
+		for _, a := range toAddrs {
+			_, _ = p.Suppressions.Add(ctx, teamID, a, reason)
+		}
+	}
+
+	_ = p.Webhooks.Fanout(ctx, teamID, mapped, map[string]any{
+		"email_id":   emailID.String(),
+		"message_id": ev.Mail.MessageID,
+		"type":       mapped,
+	})
+	return nil
+}
+
+func (p *Processor) RecordLocalEvent(ctx context.Context, teamID, emailID uuid.UUID, eventType string, data any) error {
+	payload, _ := json.Marshal(data)
+	_, err := p.Pool.Exec(ctx, `
+		INSERT INTO email_events (team_id, email_id, type, data) VALUES ($1,$2,$3,$4)
+	`, teamID, emailID, eventType, payload)
+	if err != nil {
+		return err
+	}
+	if st := statusFromEvent(eventType); st != "" {
+		_, _ = p.Pool.Exec(ctx, `UPDATE emails SET status = $2, updated_at = now() WHERE id = $1`, emailID, st)
+	}
+	return p.Webhooks.Fanout(ctx, teamID, eventType, data)
+}
+
+func mapSESType(t string) string {
+	switch strings.ToLower(t) {
+	case "send":
+		return "email.sent"
+	case "delivery":
+		return "email.delivered"
+	case "bounce":
+		return "email.bounced"
+	case "complaint":
+		return "email.complained"
+	case "reject":
+		return "email.failed"
+	case "deliverydelay":
+		return "email.delivery_delayed"
+	case "open":
+		return "email.opened"
+	case "click":
+		return "email.clicked"
+	default:
+		return "email." + strings.ToLower(t)
+	}
+}
+
+func statusFromEvent(t string) string {
+	switch t {
+	case "email.sent":
+		return "sent"
+	case "email.delivered":
+		return "delivered"
+	case "email.bounced":
+		return "bounced"
+	case "email.complained":
+		return "complained"
+	case "email.failed":
+		return "failed"
+	case "email.suppressed":
+		return "suppressed"
+	default:
+		return ""
+	}
+}
+
+type SQSConsumer struct {
+	Client   *sqs.Client
+	QueueURL string
+	Proc     *Processor
+}
+
+func NewSQSConsumer(cfg config.Config, proc *Processor) (*SQSConsumer, error) {
+	if cfg.SQSEventsQueueURL == "" {
+		return nil, fmt.Errorf("SQS_EVENTS_QUEUE_URL not set")
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(cfg.AWSRegion))
+	if err != nil {
+		return nil, err
+	}
+	var opts []func(*sqs.Options)
+	if cfg.AWSEndpointURL != "" {
+		opts = append(opts, func(o *sqs.Options) {
+			o.BaseEndpoint = aws.String(cfg.AWSEndpointURL)
+		})
+	}
+	return &SQSConsumer{
+		Client:   sqs.NewFromConfig(awsCfg, opts...),
+		QueueURL: cfg.SQSEventsQueueURL,
+		Proc:     proc,
+	}, nil
+}
+
+func (c *SQSConsumer) Run(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		out, err := c.Client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl:            aws.String(c.QueueURL),
+			MaxNumberOfMessages: 10,
+			WaitTimeSeconds:     20,
+		})
+		if err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		for _, m := range out.Messages {
+			if err := c.Proc.HandleSESJSON(ctx, []byte(aws.ToString(m.Body))); err != nil {
+				// leave message for retry / DLQ rather than acknowledging a failed handle
+				continue
+			}
+			_, _ = c.Client.DeleteMessage(ctx, &sqs.DeleteMessageInput{
+				QueueUrl:      aws.String(c.QueueURL),
+				ReceiptHandle: m.ReceiptHandle,
+			})
+		}
+	}
+}

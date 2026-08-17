@@ -1,0 +1,98 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: raisin-default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: raisin-api
+spec:
+  podSelector:
+    matchLabels:
+      app: raisin-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: raisin-console
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.service.port | default 8080 }}
+  egress:
+    - {} # RDS/Redis/SES/S3 via NAT — tighten with IP blocks in production
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: raisin-worker
+spec:
+  podSelector:
+    matchLabels:
+      app: raisin-worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.worker.service.port | default 8081 }}
+  egress:
+    - {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: raisin-smtp
+spec:
+  podSelector:
+    matchLabels:
+      app: raisin-smtp
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.smtp.service.port | default 2525 }}
+  egress:
+    - {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: raisin-console
+spec:
+  podSelector:
+    matchLabels:
+      app: raisin-console
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.console.service.port | default 3000 }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: raisin-api
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.service.port | default 8080 }}
+    - {} # DNS / Better Auth external if needed
+{{- end }}

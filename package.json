@@ -1,0 +1,9 @@
+{
+  "name": "raisin",
+  "private": true,
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "console": "pnpm --filter @raisin-run/console dev",
+    "sdk:build": "pnpm --filter @raisin-run/sdk build"
+  }
+}
