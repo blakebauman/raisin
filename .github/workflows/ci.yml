@@ -1,0 +1,136 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: SDK Go
+        working-directory: packages/sdk-go
+        run: go test ./...
+
+  sdk-js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter @raisin-run/sdk...
+      - run: pnpm --filter @raisin-run/sdk build
+
+  sdk-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -c "from raisin import Raisin, verify_webhook_signature; assert callable(verify_webhook_signature)"
+        working-directory: packages/sdk-python
+
+  console:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter @raisin-run/console...
+      - run: pnpm --filter @raisin-run/console build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:18080
+          JWT_SECRET: ci-secret
+          BETTER_AUTH_SECRET: ci-better-auth
+          BETTER_AUTH_URL: http://localhost:3000
+
+  smoke:
+    runs-on: ubuntu-latest
+    needs: [go]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: raisin
+          POSTGRES_PASSWORD: raisin
+          POSTGRES_DB: raisin
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U raisin"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+      mailpit:
+        image: axllent/mailpit:latest
+        ports: ["8025:8025"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Migrate
+        run: |
+          PGPASSWORD=raisin psql -h localhost -U raisin -d raisin -f migrations/001_init.sql
+          PGPASSWORD=raisin psql -h localhost -U raisin -d raisin -f migrations/002_better_auth.sql
+      - name: Run API + worker
+        env:
+          DATABASE_URL: postgres://raisin:raisin@localhost:5432/raisin?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          HTTP_ADDR: ":18080"
+          WORKER_ADDR: ":18081"
+          SENDER_DRIVER: mailpit
+          MAILPIT_URL: http://localhost:8025
+          JWT_SECRET: ci-secret
+          STORAGE_DRIVER: local
+          SQS_EVENTS_QUEUE_URL: ""
+          CONSOLE_ORIGIN: http://localhost:3000
+        run: |
+          go run ./apps/api/cmd &
+          go run ./apps/worker/cmd &
+          sleep 3
+          chmod +x scripts/smoke.sh
+          JWT_SECRET=ci-secret ./scripts/smoke.sh
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Lint chart
+        run: |
+          helm dependency update deploy/helm/raisin
+          helm lint deploy/helm/raisin
+          helm template raisin deploy/helm/raisin \
+            --set secrets.DATABASE_URL=postgres://raisin:x@db/raisin \
+            --set secrets.JWT_SECRET=ci \
+            --set secrets.REDIS_URL=redis://redis:6379 \
+            --set global.irsaRoleArn=arn:aws:iam::123456789012:role/raisin-app \
+            --set config.SQS_EVENTS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123/raisin \
+            >/dev/null
