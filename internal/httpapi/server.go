@@ -14,20 +14,23 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
-	"github.com/raisin-run/raisin/internal/apierr"
-	"github.com/raisin-run/raisin/internal/audience"
-	"github.com/raisin-run/raisin/internal/auth"
-	"github.com/raisin-run/raisin/internal/billing"
-	"github.com/raisin-run/raisin/internal/broadcast"
-	"github.com/raisin-run/raisin/internal/config"
-	"github.com/raisin-run/raisin/internal/db"
-	"github.com/raisin-run/raisin/internal/domain"
-	"github.com/raisin-run/raisin/internal/email"
-	"github.com/raisin-run/raisin/internal/inbound"
-	"github.com/raisin-run/raisin/internal/metrics"
-	"github.com/raisin-run/raisin/internal/suppression"
-	"github.com/raisin-run/raisin/internal/template"
-	"github.com/raisin-run/raisin/internal/webhook"
+	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/audience"
+	"github.com/blakebauman/raisin/internal/auth"
+	"github.com/blakebauman/raisin/internal/automation"
+	"github.com/blakebauman/raisin/internal/billing"
+	"github.com/blakebauman/raisin/internal/broadcast"
+	"github.com/blakebauman/raisin/internal/config"
+	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/domain"
+	"github.com/blakebauman/raisin/internal/email"
+	"github.com/blakebauman/raisin/internal/inbound"
+	"github.com/blakebauman/raisin/internal/ippool"
+	"github.com/blakebauman/raisin/internal/metrics"
+	"github.com/blakebauman/raisin/internal/oauth"
+	"github.com/blakebauman/raisin/internal/suppression"
+	"github.com/blakebauman/raisin/internal/template"
+	"github.com/blakebauman/raisin/internal/webhook"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -46,6 +49,9 @@ type Server struct {
 	Billing      *billing.Service
 	Metrics      *metrics.Service
 	Inbound      *inbound.Service
+	Automations  *automation.Service
+	IPPools      *ippool.Service
+	OAuth        *oauth.Service
 }
 
 func (s *Server) Router() http.Handler {
@@ -93,9 +99,15 @@ func (s *Server) Router() http.Handler {
 		r.Route("/domains", func(r chi.Router) {
 			r.Post("/", s.createDomain)
 			r.Get("/", s.listDomains)
+			r.Get("/regions", s.listRegions)
 			r.Get("/{id}", s.getDomain)
 			r.Patch("/{id}", s.updateDomain)
 			r.Post("/{id}/verify", s.verifyDomain)
+			r.Post("/{id}/claim", s.claimDomain)
+			r.Post("/{id}/claim/confirm", s.confirmClaimDomain)
+			r.Post("/{id}/claim/release", s.releaseClaimDomain)
+			r.Post("/{id}/bimi", s.setDomainBIMI)
+			r.Post("/{id}/receiving", s.setDomainReceiving)
 			r.Delete("/{id}", s.deleteDomain)
 		})
 
@@ -160,8 +172,35 @@ func (s *Server) Router() http.Handler {
 			r.Patch("/{id}", s.updateTemplate)
 			r.Post("/{id}/publish", s.publishTemplate)
 			r.Post("/{id}/duplicate", s.duplicateTemplate)
+			r.Get("/{id}/preview", s.renderTemplatePreview)
 			r.Delete("/{id}", s.deleteTemplate)
 		})
+
+		r.Route("/automations", func(r chi.Router) {
+			r.Post("/", s.createAutomation)
+			r.Get("/", s.listAutomations)
+			r.Get("/{id}", s.getAutomation)
+			r.Patch("/{id}", s.enableAutomation)
+			r.Delete("/{id}", s.deleteAutomation)
+			r.Get("/{id}/runs", s.listAutomationRuns)
+		})
+
+		r.Route("/ip-pools", func(r chi.Router) {
+			r.Post("/", s.createIPPool)
+			r.Get("/", s.listIPPools)
+			r.Get("/{id}", s.getIPPool)
+			r.Post("/{id}/pause", s.pauseIPPool)
+			r.Post("/{id}/resume", s.resumeIPPool)
+			r.Post("/{id}/assign-domain", s.assignIPPoolDomain)
+			r.Delete("/{id}", s.deleteIPPool)
+		})
+
+		r.Route("/oauth/apps", func(r chi.Router) {
+			r.Post("/", s.createOAuthApp)
+			r.Get("/", s.listOAuthApps)
+			r.Delete("/{id}", s.deleteOAuthApp)
+		})
+		r.Post("/oauth/authorize", s.oauthAuthorize)
 
 		r.Route("/broadcasts", func(r chi.Router) {
 			r.Post("/", s.createBroadcast)
@@ -179,6 +218,7 @@ func (s *Server) Router() http.Handler {
 	})
 
 	r.Post("/billing/webhook", s.stripeWebhook)
+	r.Post("/oauth/token", s.oauthToken)
 
 	return r
 }
@@ -209,6 +249,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		if authz == "" {
 			apierr.Write(w, apierr.Unauthorized)
 			return
+		}
+		if s.OAuth != nil && strings.Contains(authz, "ra_atk_") {
+			team, err := s.OAuth.LookupAccessToken(r.Context(), authz)
+			if err == nil {
+				ctx := context.WithValue(r.Context(), auth.TeamKey, team)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
 		}
 		team, key, err := auth.LookupAPIKey(r.Context(), s.Pool, authz)
 		if err != nil {

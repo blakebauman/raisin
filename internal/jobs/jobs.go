@@ -6,17 +6,19 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/raisin-run/raisin/internal/config"
+	"github.com/blakebauman/raisin/internal/config"
 )
 
 const (
-	TypeEmailSend       = "email:send"
-	TypeWebhookDeliver  = "webhook:deliver"
-	TypeBroadcastSend   = "broadcast:send"
-	TypeDomainVerify    = "domain:verify"
-	QueueCritical       = "critical"
-	QueueDefault        = "default"
-	QueueLow            = "low"
+	TypeEmailSend         = "email:send"
+	TypeWebhookDeliver    = "webhook:deliver"
+	TypeBroadcastSend     = "broadcast:send"
+	TypeDomainVerify      = "domain:verify"
+	TypeAutomationStep    = "automation:step"
+	TypeIPWarmupTick      = "ip:warmup-tick"
+	QueueCritical         = "critical"
+	QueueDefault          = "default"
+	QueueLow              = "low"
 )
 
 type EmailSendPayload struct {
@@ -36,6 +38,15 @@ type BroadcastSendPayload struct {
 type DomainVerifyPayload struct {
 	DomainID string `json:"domain_id"`
 	TeamID   string `json:"team_id"`
+}
+
+type AutomationStepPayload struct {
+	RunID  string `json:"run_id"`
+	TeamID string `json:"team_id"`
+}
+
+type IPWarmupTickPayload struct {
+	PoolID string `json:"pool_id"`
 }
 
 func NewClient(cfg config.Config) *asynq.Client {
@@ -105,6 +116,26 @@ func NewDomainVerifyTask(domainID, teamID string) (*asynq.Task, error) {
 		return nil, err
 	}
 	return asynq.NewTask(TypeDomainVerify, b, asynq.Queue(QueueDefault), asynq.MaxRetry(3)), nil
+}
+
+func NewAutomationStepTask(runID, teamID string) (*asynq.Task, error) {
+	b, err := json.Marshal(AutomationStepPayload{RunID: runID, TeamID: teamID})
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(TypeAutomationStep, b, asynq.Queue(QueueDefault), asynq.MaxRetry(5)), nil
+}
+
+func NewAutomationStepTaskAt(runID, teamID string, at time.Time) (*asynq.Task, error) {
+	b, err := json.Marshal(AutomationStepPayload{RunID: runID, TeamID: teamID})
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(TypeAutomationStep, b,
+		asynq.Queue(QueueDefault),
+		asynq.ProcessAt(at),
+		asynq.MaxRetry(5),
+	), nil
 }
 
 func redisAddr(redisURL string) string {

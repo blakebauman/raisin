@@ -1,6 +1,6 @@
 replicaCount: 1
 image:
-  repository: ghcr.io/raisin-run/raisin-smtp
+  repository: ghcr.io/blakebauman/raisin-smtp
   tag: latest
 service:
   port: 2525

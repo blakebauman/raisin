@@ -1,4 +1,4 @@
-.PHONY: api worker smtp migrate tidy test console sdk-js sdk-go smoke compose-up compose-apps compose-down
+.PHONY: api worker smtp migrate tidy test console sdk-js sdk-go cli mcp smoke compose-up compose-apps compose-down
 
 DATABASE_URL ?= postgres://raisin:raisin@localhost:5433/raisin?sslmode=disable
 
@@ -11,9 +11,16 @@ worker:
 smtp:
 	go run ./apps/smtp/cmd
 
+cli:
+	go run ./apps/cli
+
+mcp:
+	pnpm --filter @raisin-run/mcp-server start
+
 migrate:
 	psql "$(DATABASE_URL)" -f migrations/001_init.sql
 	psql "$(DATABASE_URL)" -f migrations/002_better_auth.sql
+	psql "$(DATABASE_URL)" -f migrations/003_platform_extras.sql
 
 tidy:
 	go mod tidy

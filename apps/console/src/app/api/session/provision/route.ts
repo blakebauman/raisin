@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 
@@ -7,7 +7,7 @@ const API_URL =
 const JWT_SECRET = process.env.JWT_SECRET ?? "dev-jwt-secret-change-me-in-production";
 
 /** Mint a Raisin team JWT for the current Better Auth session. */
-export async function POST(_req: NextRequest) {
+export async function POST() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session?.user?.email) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });

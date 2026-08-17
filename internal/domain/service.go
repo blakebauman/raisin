@@ -8,10 +8,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/raisin-run/raisin/internal/apierr"
-	"github.com/raisin-run/raisin/internal/auth"
-	"github.com/raisin-run/raisin/internal/db"
-	"github.com/raisin-run/raisin/internal/sender"
+	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/auth"
+	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/sender"
 )
 
 type Service struct {
@@ -20,15 +20,21 @@ type Service struct {
 }
 
 type Domain struct {
-	ID                uuid.UUID `json:"id"`
-	Name              string    `json:"name"`
-	Region            string    `json:"region"`
-	Status            string    `json:"status"`
-	OpenTracking      bool      `json:"open_tracking"`
-	ClickTracking     bool      `json:"click_tracking"`
-	TrackingSubdomain string    `json:"tracking_subdomain"`
-	Records           []Record  `json:"records"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                uuid.UUID  `json:"id"`
+	Name              string     `json:"name"`
+	Region            string     `json:"region"`
+	Status            string     `json:"status"`
+	OpenTracking      bool       `json:"open_tracking"`
+	ClickTracking     bool       `json:"click_tracking"`
+	TrackingSubdomain string     `json:"tracking_subdomain"`
+	ClaimedAt         *time.Time `json:"claimed_at,omitempty"`
+	ReceivingEnabled  bool       `json:"receiving_enabled"`
+	BIMISelector      string     `json:"bimi_selector,omitempty"`
+	BIMISVGURL        *string    `json:"bimi_svg_url,omitempty"`
+	BIMIVMCURL        *string    `json:"bimi_vmc_url,omitempty"`
+	IPPoolID          *uuid.UUID `json:"ip_pool_id,omitempty"`
+	Records           []Record   `json:"records"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 type Record struct {
@@ -56,12 +62,9 @@ func (s *Service) Create(ctx context.Context, team *auth.Team, req CreateRequest
 	if name == "" {
 		return nil, apierr.Validation("name is required")
 	}
-	region := req.Region
-	if region == "" {
-		region = "us-east-1"
-	}
+	region := NormalizeRegion(req.Region)
 
-	identity, err := s.Identity.CreateDomain(ctx, name)
+	identity, err := s.Identity.CreateDomain(ctx, name, region)
 	if err != nil {
 		return nil, fmt.Errorf("create identity: %w", err)
 	}
@@ -105,9 +108,13 @@ func (s *Service) Create(ctx context.Context, team *auth.Team, req CreateRequest
 func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*Domain, error) {
 	var d Domain
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, name, region, status, open_tracking, click_tracking, tracking_subdomain, created_at
+		SELECT id, name, region, status, open_tracking, click_tracking, tracking_subdomain,
+		       claimed_at, receiving_enabled, bimi_selector, bimi_svg_url, bimi_vmc_url, ip_pool_id, created_at
 		FROM domains WHERE id = $1 AND team_id = $2
-	`, id, teamID).Scan(&d.ID, &d.Name, &d.Region, &d.Status, &d.OpenTracking, &d.ClickTracking, &d.TrackingSubdomain, &d.CreatedAt)
+	`, id, teamID).Scan(
+		&d.ID, &d.Name, &d.Region, &d.Status, &d.OpenTracking, &d.ClickTracking, &d.TrackingSubdomain,
+		&d.ClaimedAt, &d.ReceivingEnabled, &d.BIMISelector, &d.BIMISVGURL, &d.BIMIVMCURL, &d.IPPoolID, &d.CreatedAt,
+	)
 	if err == pgx.ErrNoRows {
 		return nil, apierr.NotFound
 	}
@@ -124,7 +131,8 @@ func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*Domain, error
 
 func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*Domain, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, name, region, status, open_tracking, click_tracking, tracking_subdomain, created_at
+		SELECT id, name, region, status, open_tracking, click_tracking, tracking_subdomain,
+		       claimed_at, receiving_enabled, bimi_selector, bimi_svg_url, bimi_vmc_url, ip_pool_id, created_at
 		FROM domains WHERE team_id = $1 ORDER BY created_at DESC
 	`, teamID)
 	if err != nil {
@@ -134,7 +142,10 @@ func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*Domain, error)
 	var out []*Domain
 	for rows.Next() {
 		var d Domain
-		if err := rows.Scan(&d.ID, &d.Name, &d.Region, &d.Status, &d.OpenTracking, &d.ClickTracking, &d.TrackingSubdomain, &d.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&d.ID, &d.Name, &d.Region, &d.Status, &d.OpenTracking, &d.ClickTracking, &d.TrackingSubdomain,
+			&d.ClaimedAt, &d.ReceivingEnabled, &d.BIMISelector, &d.BIMISVGURL, &d.BIMIVMCURL, &d.IPPoolID, &d.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		recs, _ := s.records(ctx, d.ID)
@@ -149,7 +160,7 @@ func (s *Service) Verify(ctx context.Context, teamID, id uuid.UUID) (*Domain, er
 	if err != nil {
 		return nil, err
 	}
-	identity, err := s.Identity.VerifyDomain(ctx, d.Name)
+	identity, err := s.Identity.VerifyDomain(ctx, d.Name, d.Region)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +190,7 @@ func (s *Service) Delete(ctx context.Context, teamID, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-	_ = s.Identity.DeleteDomain(ctx, d.Name)
+	_ = s.Identity.DeleteDomain(ctx, d.Name, d.Region)
 	_, err = s.Pool.Exec(ctx, `DELETE FROM domains WHERE id = $1 AND team_id = $2`, id, teamID)
 	return err
 }

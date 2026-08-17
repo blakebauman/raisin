@@ -32,6 +32,9 @@ class Raisin:
         self.contacts = Contacts(self)
         self.templates = Templates(self)
         self.broadcasts = Broadcasts(self)
+        self.suppressions = Suppressions(self)
+        self.automations = Automations(self)
+        self.ip_pools = IPPools(self)
 
     def request(self, method: str, path: str, body: Any = None) -> Any:
         data = None if body is None else json.dumps(body).encode("utf-8")
@@ -114,6 +117,22 @@ class Domains:
     def remove(self, id: str) -> dict:
         return self._c.request("DELETE", f"/domains/{id}")
 
+    def regions(self) -> dict:
+        return self._c.request("GET", "/domains/regions")
+
+    def claim(self, id: str) -> dict:
+        return self._c.request("POST", f"/domains/{id}/claim", {})
+
+    def confirm_claim(self, id: str) -> dict:
+        return self._c.request("POST", f"/domains/{id}/claim/confirm", {})
+
+    def set_bimi(self, id: str, svg_url: str, **opts: Any) -> dict:
+        body = {"svg_url": svg_url, **opts}
+        return self._c.request("POST", f"/domains/{id}/bimi", body)
+
+    def set_receiving(self, id: str, enabled: bool) -> dict:
+        return self._c.request("POST", f"/domains/{id}/receiving", {"enabled": enabled})
+
 
 class Webhooks:
     def __init__(self, client: Raisin):
@@ -150,8 +169,19 @@ class Contacts:
     def __init__(self, client: Raisin):
         self._c = client
 
-    def create(self, email: str) -> dict:
-        return self._c.request("POST", "/contacts", {"email": email})
+    def create(
+        self,
+        email: str,
+        *,
+        first_name: str | None = None,
+        last_name: str | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {"email": email}
+        if first_name is not None:
+            body["first_name"] = first_name
+        if last_name is not None:
+            body["last_name"] = last_name
+        return self._c.request("POST", "/contacts", body)
 
     def list(self) -> dict:
         return self._c.request("GET", "/contacts")
@@ -177,6 +207,60 @@ class Broadcasts:
 
     def send(self, id: str) -> dict:
         return self._c.request("POST", f"/broadcasts/{id}/send", {})
+
+
+class Suppressions:
+    def __init__(self, client: Raisin):
+        self._c = client
+
+    def create(self, email: str, reason: str = "manual") -> dict:
+        return self._c.request("POST", "/suppressions", {"email": email, "reason": reason})
+
+    def list(self) -> dict:
+        return self._c.request("GET", "/suppressions")
+
+    def remove(self, id: str) -> dict:
+        return self._c.request("DELETE", f"/suppressions/{id}")
+
+
+class Automations:
+    def __init__(self, client: Raisin):
+        self._c = client
+
+    def create(self, **body: Any) -> dict:
+        return self._c.request("POST", "/automations", body)
+
+    def list(self) -> dict:
+        return self._c.request("GET", "/automations")
+
+    def enable(self, id: str, enabled: bool) -> dict:
+        return self._c.request("PATCH", f"/automations/{id}", {"enabled": enabled})
+
+    def remove(self, id: str) -> dict:
+        return self._c.request("DELETE", f"/automations/{id}")
+
+
+class IPPools:
+    def __init__(self, client: Raisin):
+        self._c = client
+
+    def create(self, name: str, region: str = "us-east-1") -> dict:
+        return self._c.request("POST", "/ip-pools", {"name": name, "region": region})
+
+    def list(self) -> dict:
+        return self._c.request("GET", "/ip-pools")
+
+    def assign_domain(self, pool_id: str, domain_id: str) -> dict:
+        return self._c.request("POST", f"/ip-pools/{pool_id}/assign-domain", {"domain_id": domain_id})
+
+    def pause(self, id: str) -> dict:
+        return self._c.request("POST", f"/ip-pools/{id}/pause", {})
+
+    def resume(self, id: str) -> dict:
+        return self._c.request("POST", f"/ip-pools/{id}/resume", {})
+
+    def remove(self, id: str) -> dict:
+        return self._c.request("DELETE", f"/ip-pools/{id}")
 
 
 def verify_webhook_signature(

@@ -15,6 +15,9 @@ import {
   Settings,
   Ban,
   Inbox,
+  Workflow,
+  Server,
+  Shield,
 } from "lucide-react";
 
 const nav = [
@@ -22,7 +25,10 @@ const nav = [
   { href: "/emails", label: "Emails", icon: Mail },
   { href: "/received", label: "Received", icon: Inbox },
   { href: "/domains", label: "Domains", icon: Globe },
+  { href: "/automations", label: "Automations", icon: Workflow },
+  { href: "/ips", label: "Dedicated IPs", icon: Server },
   { href: "/api-keys", label: "API Keys", icon: Key },
+  { href: "/oauth", label: "OAuth Apps", icon: Shield },
   { href: "/webhooks", label: "Webhooks", icon: Webhook },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/suppressions", label: "Suppressions", icon: Ban },

@@ -3,7 +3,7 @@ package template_test
 import (
 	"testing"
 
-	"github.com/raisin-run/raisin/internal/template"
+	"github.com/blakebauman/raisin/internal/template"
 )
 
 func TestRender(t *testing.T) {

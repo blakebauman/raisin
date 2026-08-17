@@ -28,37 +28,85 @@ export default function EmailDetailPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [atts, setAtts] = useState<Attachment[]>([]);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!id) return;
-    Promise.all([
-      apiFetch<Email>(`/emails/${id}`),
-      apiFetch<{ data: Event[] }>(`/emails/${id}/events`),
-      apiFetch<{ data: Attachment[] }>(`/emails/${id}/attachments`),
-    ])
-      .then(([e, ev, a]) => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [e, ev, a] = await Promise.all([
+          apiFetch<Email>(`/emails/${id}`),
+          apiFetch<{ data: Event[] }>(`/emails/${id}/events`),
+          apiFetch<{ data: Attachment[] }>(`/emails/${id}/attachments`),
+        ]);
+        if (cancelled) return;
         setEmail(e);
         setEvents(ev.data ?? []);
         setAtts(a.data ?? []);
-      })
-      .catch((e) => setError(e.message));
+      } catch (e: unknown) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
-  if (error) {
+  async function reload() {
+    const [e, ev, a] = await Promise.all([
+      apiFetch<Email>(`/emails/${id}`),
+      apiFetch<{ data: Event[] }>(`/emails/${id}/events`),
+      apiFetch<{ data: Attachment[] }>(`/emails/${id}/attachments`),
+    ]);
+    setEmail(e);
+    setEvents(ev.data ?? []);
+    setAtts(a.data ?? []);
+  }
+
+  async function cancel() {
+    setBusy(true);
+    setError("");
+    try {
+      await apiFetch(`/emails/${id}/cancel`, { method: "POST", body: "{}" });
+      await reload();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "cancel failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error && !email) {
     return <p className="text-red-400 text-sm">{error}</p>;
   }
   if (!email) {
     return <p className="text-zinc-500 text-sm">Loading…</p>;
   }
 
+  const canCancel = email.status === "queued" || email.status === "scheduled";
+
   return (
     <div>
       <Link href="/emails" className="text-xs text-zinc-500 hover:text-zinc-300">
         ← Emails
       </Link>
-      <h1 className="mt-3 font-[family-name:var(--font-display)] text-4xl text-zinc-50">
-        {email.subject || "(no subject)"}
-      </h1>
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+        <h1 className="font-[family-name:var(--font-display)] text-4xl text-zinc-50">
+          {email.subject || "(no subject)"}
+        </h1>
+        {canCancel && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={cancel}
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-50"
+          >
+            {busy ? "Canceling…" : "Cancel send"}
+          </button>
+        )}
+      </div>
+      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       <div className="mt-2 flex flex-wrap gap-3 text-sm text-zinc-400">
         <span>{email.from}</span>
         <span>→ {email.to?.join(", ")}</span>

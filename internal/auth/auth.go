@@ -12,7 +12,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/raisin-run/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/db"
 )
 
 type Team struct {

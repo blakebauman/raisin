@@ -60,6 +60,9 @@ export class Raisin {
   readonly contacts: Contacts;
   readonly templates: Templates;
   readonly broadcasts: Broadcasts;
+  readonly suppressions: Suppressions;
+  readonly automations: Automations;
+  readonly ipPools: IPPools;
 
   constructor(apiKeyOrOpts: string | RaisinOptions) {
     if (typeof apiKeyOrOpts === "string") {
@@ -76,6 +79,9 @@ export class Raisin {
     this.contacts = new Contacts(this);
     this.templates = new Templates(this);
     this.broadcasts = new Broadcasts(this);
+    this.suppressions = new Suppressions(this);
+    this.automations = new Automations(this);
+    this.ipPools = new IPPools(this);
   }
 
   async request<T>(
@@ -200,11 +206,26 @@ class Domains {
   list() {
     return this.client.request("GET", "/domains");
   }
+  regions() {
+    return this.client.request("GET", "/domains/regions");
+  }
   get(id: string) {
     return this.client.request("GET", `/domains/${id}`);
   }
   verify(id: string) {
     return this.client.request("POST", `/domains/${id}/verify`);
+  }
+  claim(id: string) {
+    return this.client.request("POST", `/domains/${id}/claim`);
+  }
+  confirmClaim(id: string) {
+    return this.client.request("POST", `/domains/${id}/claim/confirm`);
+  }
+  setBIMI(id: string, body: { svg_url: string; selector?: string; vmc_url?: string }) {
+    return this.client.request("POST", `/domains/${id}/bimi`, body);
+  }
+  setReceiving(id: string, enabled: boolean) {
+    return this.client.request("POST", `/domains/${id}/receiving`, { enabled });
   }
   remove(id: string) {
     return this.client.request("DELETE", `/domains/${id}`);
@@ -346,6 +367,71 @@ class Broadcasts {
   }
   list() {
     return this.client.request("GET", "/broadcasts");
+  }
+}
+
+class Suppressions {
+  constructor(private client: Raisin) {}
+  create(email: string, reason = "manual") {
+    return this.client.request("POST", "/suppressions", { email, reason });
+  }
+  list() {
+    return this.client.request("GET", "/suppressions");
+  }
+  remove(id: string) {
+    return this.client.request("DELETE", `/suppressions/${id}`);
+  }
+}
+
+class Automations {
+  constructor(private client: Raisin) {}
+  create(body: {
+    name: string;
+    trigger_type: string;
+    steps?: { type: string; config?: Record<string, unknown> }[];
+    trigger_filter?: Record<string, unknown>;
+  }) {
+    return this.client.request("POST", "/automations", body);
+  }
+  list() {
+    return this.client.request("GET", "/automations");
+  }
+  get(id: string) {
+    return this.client.request("GET", `/automations/${id}`);
+  }
+  enable(id: string, enabled: boolean) {
+    return this.client.request("PATCH", `/automations/${id}`, { enabled });
+  }
+  remove(id: string) {
+    return this.client.request("DELETE", `/automations/${id}`);
+  }
+  runs(id: string) {
+    return this.client.request("GET", `/automations/${id}/runs`);
+  }
+}
+
+class IPPools {
+  constructor(private client: Raisin) {}
+  create(name: string, region?: string) {
+    return this.client.request("POST", "/ip-pools", { name, region });
+  }
+  list() {
+    return this.client.request("GET", "/ip-pools");
+  }
+  get(id: string) {
+    return this.client.request("GET", `/ip-pools/${id}`);
+  }
+  assignDomain(id: string, domainId: string) {
+    return this.client.request("POST", `/ip-pools/${id}/assign-domain`, { domain_id: domainId });
+  }
+  pause(id: string) {
+    return this.client.request("POST", `/ip-pools/${id}/pause`);
+  }
+  resume(id: string) {
+    return this.client.request("POST", `/ip-pools/${id}/resume`);
+  }
+  remove(id: string) {
+    return this.client.request("DELETE", `/ip-pools/${id}`);
   }
 }
 

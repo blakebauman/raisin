@@ -11,6 +11,7 @@ Developer-first email API on Go, Amazon SES, EKS, and Postgres.
 - **Console**: Next.js + Better Auth (app.raisin.run)
 - **Mail**: Amazon SES v2 (Mailpit locally) + SMTP relay (smtp.raisin.run)
 - **Data**: Postgres + Redis
+- **Platform extras**: Automations, dedicated IPs + warmup, multi-region SES, OAuth apps, CLI, MCP, visual template editor, BIMI, domain claiming, inbound receive
 - **Deploy**: Terraform + Helm on EKS
 
 ## Hosts
@@ -48,7 +49,14 @@ make smoke   # end-to-end API check (API+worker must be running)
 
 Demo API key: `ra_demo_00000000000000000000000000000000`
 
-Migrations: `001_init.sql` (schema + demo team) and `002_better_auth.sql` (console auth tables). Compose applies both on first boot; `make migrate` applies both against `DATABASE_URL`.
+Migrations: `001_init.sql`, `002_better_auth.sql`, and `003_platform_extras.sql` (automations, IPs, OAuth, BIMI/claims, inbound harden). Compose applies them on first boot; `make migrate` applies all against `DATABASE_URL`.
+
+### CLI / MCP
+
+```bash
+go run ./apps/cli --api-key "$RAISIN_API_KEY" emails list
+pnpm --filter @raisin-run/mcp-server start   # RAISIN_API_KEY required
+```
 
 ### Domain verify (local)
 
@@ -129,3 +137,7 @@ terraform init && terraform apply
 ```
 
 Private subnets use a NAT gateway; EKS gets a managed node group + OIDC/IRSA role for api/worker (S3, SQS, SES).
+
+## License
+
+Proprietary — see [LICENSE](./LICENSE).

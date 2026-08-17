@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/raisin-run/raisin/internal/apierr"
-	"github.com/raisin-run/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/db"
 )
 
 type Service struct {
@@ -169,16 +169,42 @@ func (s *Service) DeleteSegment(ctx context.Context, teamID, id uuid.UUID) error
 	return err
 }
 
-func (s *Service) AddToSegment(ctx context.Context, segmentID, contactID uuid.UUID) error {
-	_, err := s.Pool.Exec(ctx, `
+func (s *Service) AddToSegment(ctx context.Context, teamID, segmentID, contactID uuid.UUID) error {
+	var ok bool
+	err := s.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM segments s
+			JOIN contacts c ON c.id = $2 AND c.team_id = s.team_id
+			WHERE s.id = $1 AND s.team_id = $3
+		)
+	`, segmentID, contactID, teamID).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return apierr.NotFound
+	}
+	_, err = s.Pool.Exec(ctx, `
 		INSERT INTO segment_members (segment_id, contact_id) VALUES ($1,$2) ON CONFLICT DO NOTHING
 	`, segmentID, contactID)
 	return err
 }
 
-func (s *Service) RemoveFromSegment(ctx context.Context, segmentID, contactID uuid.UUID) error {
-	_, err := s.Pool.Exec(ctx, `DELETE FROM segment_members WHERE segment_id = $1 AND contact_id = $2`, segmentID, contactID)
-	return err
+func (s *Service) RemoveFromSegment(ctx context.Context, teamID, segmentID, contactID uuid.UUID) error {
+	tag, err := s.Pool.Exec(ctx, `
+		DELETE FROM segment_members sm
+		USING segments s, contacts c
+		WHERE sm.segment_id = s.id AND sm.contact_id = c.id
+		  AND sm.segment_id = $1 AND sm.contact_id = $2
+		  AND s.team_id = $3 AND c.team_id = $3
+	`, segmentID, contactID, teamID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apierr.NotFound
+	}
+	return nil
 }
 
 func (s *Service) CreateTopic(ctx context.Context, teamID uuid.UUID, name, desc, def string) (*Topic, error) {

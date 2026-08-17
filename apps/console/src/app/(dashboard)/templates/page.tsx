@@ -79,6 +79,9 @@ export default function TemplatesPage() {
               <div className="text-xs text-zinc-500">{t.status}</div>
             </div>
             <div className="flex gap-3 shrink-0">
+              <a href={`/templates/${t.id}/edit`} className="text-xs text-zinc-300 hover:underline">
+                Edit
+              </a>
               {t.status !== "published" && (
                 <button
                   type="button"

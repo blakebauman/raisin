@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/raisin-run/raisin/internal/jobs"
+	"github.com/blakebauman/raisin/internal/jobs"
 )
 
 func TestNewEmailSendTask(t *testing.T) {

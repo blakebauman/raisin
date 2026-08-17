@@ -18,7 +18,8 @@ export async function apiFetch<T = unknown>(
   headers.set("Content-Type", "application/json");
   headers.set("User-Agent", "raisin-console/0.1.0");
   if (token) headers.set("X-Team-Token", token);
-  const { token: _t, ...rest } = init;
+  const { token: _, ...rest } = init;
+  void _;
   const res = await fetch(`/api/proxy${path.startsWith("/") ? path : `/${path}`}`, {
     ...rest,
     headers,

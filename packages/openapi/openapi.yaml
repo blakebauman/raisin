@@ -556,6 +556,275 @@ paths:
       responses:
         '200':
           description: OK
+  /domains/regions:
+    get:
+      summary: List allowed SES regions
+      operationId: listRegions
+      responses:
+        '200':
+          description: OK
+  /domains/{id}/claim:
+    post:
+      summary: Start domain ownership claim
+      operationId: claimDomain
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /domains/{id}/claim/confirm:
+    post:
+      summary: Confirm domain claim
+      operationId: confirmClaimDomain
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /domains/{id}/claim/release:
+    post:
+      summary: Release domain claim
+      operationId: releaseClaimDomain
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /domains/{id}/bimi:
+    post:
+      summary: Configure BIMI
+      operationId: setDomainBIMI
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [svg_url]
+              properties:
+                selector: { type: string }
+                svg_url: { type: string }
+                vmc_url: { type: string }
+      responses:
+        '200':
+          description: OK
+  /domains/{id}/receiving:
+    post:
+      summary: Enable or disable inbound receiving
+      operationId: setDomainReceiving
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: OK
+  /templates/{id}/duplicate:
+    post:
+      summary: Duplicate template
+      operationId: duplicateTemplate
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /templates/{id}/preview:
+    get:
+      summary: Preview template HTML / react source
+      operationId: previewTemplate
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /automations:
+    post:
+      summary: Create automation
+      operationId: createAutomation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, trigger_type]
+              properties:
+                name: { type: string }
+                trigger_type: { type: string }
+                trigger_filter: { type: object }
+                steps:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string }
+                      config: { type: object }
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List automations
+      operationId: listAutomations
+      responses:
+        '200':
+          description: OK
+  /automations/{id}:
+    get:
+      summary: Get automation
+      operationId: getAutomation
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    patch:
+      summary: Enable or disable automation
+      operationId: enableAutomation
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete automation
+      operationId: deleteAutomation
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /automations/{id}/runs:
+    get:
+      summary: List automation runs
+      operationId: listAutomationRuns
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /ip-pools:
+    post:
+      summary: Create dedicated IP pool
+      operationId: createIPPool
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                region: { type: string }
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List IP pools
+      operationId: listIPPools
+      responses:
+        '200':
+          description: OK
+  /ip-pools/{id}:
+    get:
+      summary: Get IP pool
+      operationId: getIPPool
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete IP pool
+      operationId: deleteIPPool
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /ip-pools/{id}/pause:
+    post:
+      summary: Pause IP pool warmup
+      operationId: pauseIPPool
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /ip-pools/{id}/resume:
+    post:
+      summary: Resume IP pool warmup
+      operationId: resumeIPPool
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /ip-pools/{id}/assign-domain:
+    post:
+      summary: Assign domain to IP pool
+      operationId: assignIPPoolDomain
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domain_id]
+              properties:
+                domain_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: OK
+  /oauth/apps:
+    post:
+      summary: Create OAuth app
+      operationId: createOAuthApp
+      responses:
+        '200':
+          description: OK
+    get:
+      summary: List OAuth apps
+      operationId: listOAuthApps
+      responses:
+        '200':
+          description: OK
+  /oauth/apps/{id}:
+    delete:
+      summary: Delete OAuth app
+      operationId: deleteOAuthApp
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /oauth/authorize:
+    post:
+      summary: Issue authorization code (console/team JWT)
+      operationId: oauthAuthorize
+      responses:
+        '200':
+          description: OK
+  /oauth/token:
+    post:
+      summary: Exchange authorization code for access token
+      security: []
+      operationId: oauthToken
+      responses:
+        '200':
+          description: OK
   /console/token:
     post:
       summary: Mint demo team JWT (dev)

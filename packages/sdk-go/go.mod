@@ -1,3 +1,3 @@
-module github.com/raisin-run/raisin-go
+module github.com/blakebauman/raisin-go
 
 go 1.22

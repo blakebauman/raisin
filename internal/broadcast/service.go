@@ -2,14 +2,15 @@ package broadcast
 
 import (
 	"context"
+	"strings"
 	"time"
 
+	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/jobs"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5"
-	"github.com/raisin-run/raisin/internal/apierr"
-	"github.com/raisin-run/raisin/internal/db"
-	"github.com/raisin-run/raisin/internal/jobs"
 )
 
 type Service struct {
@@ -33,24 +34,44 @@ type Broadcast struct {
 }
 
 type CreateRequest struct {
-	SegmentID  *uuid.UUID `json:"segment_id"`
-	Name       string     `json:"name"`
-	From       string     `json:"from"`
-	Subject    string     `json:"subject"`
-	HTML       string     `json:"html"`
-	Text       string     `json:"text"`
-	TemplateID *uuid.UUID `json:"template_id"`
+	SegmentID  string `json:"segment_id"`
+	Name       string `json:"name"`
+	From       string `json:"from"`
+	Subject    string `json:"subject"`
+	HTML       string `json:"html"`
+	Text       string `json:"text"`
+	TemplateID string `json:"template_id"`
+}
+
+func parseOptionalUUID(s string) (*uuid.UUID, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return nil, apierr.Validation("invalid uuid")
+	}
+	return &id, nil
 }
 
 func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateRequest) (*Broadcast, error) {
 	if req.From == "" || req.Subject == "" {
 		return nil, apierr.Validation("from and subject are required")
 	}
+	segID, err := parseOptionalUUID(req.SegmentID)
+	if err != nil {
+		return nil, err
+	}
+	tplID, err := parseOptionalUUID(req.TemplateID)
+	if err != nil {
+		return nil, err
+	}
 	var id uuid.UUID
-	err := s.Pool.QueryRow(ctx, `
+	err = s.Pool.QueryRow(ctx, `
 		INSERT INTO broadcasts (team_id, segment_id, name, from_addr, subject, html, text, template_id)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id
-	`, teamID, req.SegmentID, nullStr(req.Name), req.From, req.Subject, nullStr(req.HTML), nullStr(req.Text), req.TemplateID).Scan(&id)
+	`, teamID, segID, nullStr(req.Name), req.From, req.Subject, nullStr(req.HTML), nullStr(req.Text), tplID).Scan(&id)
 	if err != nil {
 		return nil, err
 	}

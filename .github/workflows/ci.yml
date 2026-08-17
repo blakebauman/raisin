@@ -22,6 +22,8 @@ jobs:
       - name: SDK Go
         working-directory: packages/sdk-go
         run: go test ./...
+      - name: CLI
+        run: go build -o /tmp/raisin ./apps/cli
 
   sdk-js:
     runs-on: ubuntu-latest
@@ -29,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.33.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -44,8 +46,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -c "from raisin import Raisin, verify_webhook_signature; assert callable(verify_webhook_signature)"
+      - run: python -c "from raisin import Raisin, verify_webhook_signature; r=Raisin('k'); assert hasattr(r,'automations') and hasattr(r,'ip_pools'); assert callable(verify_webhook_signature)"
         working-directory: packages/sdk-python
+
+  mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --filter @raisin-run/mcp-server...
+      - run: pnpm --filter @raisin-run/mcp-server build
 
   console:
     runs-on: ubuntu-latest
@@ -53,18 +69,33 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.33.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --filter @raisin-run/console...
+      - run: pnpm --filter @raisin-run/console lint
       - run: pnpm --filter @raisin-run/console build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:18080
           JWT_SECRET: ci-secret
           BETTER_AUTH_SECRET: ci-better-auth
           BETTER_AUTH_URL: http://localhost:3000
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
 
   smoke:
     runs-on: ubuntu-latest
@@ -97,6 +128,7 @@ jobs:
         run: |
           PGPASSWORD=raisin psql -h localhost -U raisin -d raisin -f migrations/001_init.sql
           PGPASSWORD=raisin psql -h localhost -U raisin -d raisin -f migrations/002_better_auth.sql
+          PGPASSWORD=raisin psql -h localhost -U raisin -d raisin -f migrations/003_platform_extras.sql
       - name: Run API + worker
         env:
           DATABASE_URL: postgres://raisin:raisin@localhost:5432/raisin?sslmode=disable

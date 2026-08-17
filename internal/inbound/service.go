@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/raisin-run/raisin/internal/apierr"
-	"github.com/raisin-run/raisin/internal/db"
-	"github.com/raisin-run/raisin/internal/storage"
+	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/storage"
 )
 
 type Service struct {
@@ -29,12 +29,21 @@ type ReceivedEmail struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (s *Service) Store(ctx context.Context, teamID uuid.UUID, from string, to []string, subject, html, text, s3Key string) (*ReceivedEmail, error) {
+func (s *Service) Store(ctx context.Context, teamID uuid.UUID, from string, to []string, subject, html, text, s3Key, providerMessageID string, domainID *uuid.UUID) (*ReceivedEmail, error) {
+	if providerMessageID != "" {
+		var existing uuid.UUID
+		err := s.Pool.QueryRow(ctx, `
+			SELECT id FROM received_emails WHERE team_id = $1 AND provider_message_id = $2
+		`, teamID, providerMessageID).Scan(&existing)
+		if err == nil {
+			return s.Get(ctx, teamID, existing)
+		}
+	}
 	var id uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
-		INSERT INTO received_emails (team_id, from_addr, to_addrs, subject, html, text, s3_key)
-		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id
-	`, teamID, from, to, nullStr(subject), nullStr(html), nullStr(text), nullStr(s3Key)).Scan(&id)
+		INSERT INTO received_emails (team_id, from_addr, to_addrs, subject, html, text, s3_key, provider_message_id, domain_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id
+	`, teamID, from, to, nullStr(subject), nullStr(html), nullStr(text), nullStr(s3Key), nullStr(providerMessageID), domainID).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +107,7 @@ func (s *Service) HandleSESNNotification(ctx context.Context, raw []byte) error 
 	}
 
 	// Resolve team by recipient domain
-	teamID, err := s.teamForRecipients(ctx, n.Mail.Destination)
+	teamID, domainID, err := s.teamForRecipients(ctx, n.Mail.Destination)
 	if err != nil || teamID == uuid.Nil {
 		return nil // drop unknown
 	}
@@ -119,11 +128,11 @@ func (s *Service) HandleSESNNotification(ctx context.Context, raw []byte) error 
 		}
 	}
 
-	_, err = s.Store(ctx, teamID, n.Mail.Source, n.Mail.Destination, n.Mail.CommonHeaders.Subject, html, text, s3Key)
+	_, err = s.Store(ctx, teamID, n.Mail.Source, n.Mail.Destination, n.Mail.CommonHeaders.Subject, html, text, s3Key, n.Mail.MessageID, domainID)
 	return err
 }
 
-func (s *Service) teamForRecipients(ctx context.Context, recipients []string) (uuid.UUID, error) {
+func (s *Service) teamForRecipients(ctx context.Context, recipients []string) (uuid.UUID, *uuid.UUID, error) {
 	for _, r := range recipients {
 		addr, err := mail.ParseAddress(r)
 		email := r
@@ -134,16 +143,19 @@ func (s *Service) teamForRecipients(ctx context.Context, recipients []string) (u
 		if len(parts) != 2 {
 			continue
 		}
-		domain := strings.ToLower(parts[1])
-		var teamID uuid.UUID
+		domainName := strings.ToLower(parts[1])
+		var teamID, domainID uuid.UUID
 		err = s.Pool.QueryRow(ctx, `
-			SELECT team_id FROM domains WHERE name = $1 AND status = 'verified' LIMIT 1
-		`, domain).Scan(&teamID)
+			SELECT team_id, id FROM domains
+			WHERE name = $1 AND status = 'verified' AND receiving_enabled = true
+			ORDER BY claimed_at NULLS LAST
+			LIMIT 1
+		`, domainName).Scan(&teamID, &domainID)
 		if err == nil {
-			return teamID, nil
+			return teamID, &domainID, nil
 		}
 	}
-	return uuid.Nil, nil
+	return uuid.Nil, nil, nil
 }
 
 func parseMIMEBodies(raw string) (html, text string) {

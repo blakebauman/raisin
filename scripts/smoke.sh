@@ -68,6 +68,91 @@ curl -sf -X POST "$API/inbound/ses" \
 echo "== received =="
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/received" | grep -q '"data"'
 
+echo "== contact =="
+CT=$(curl -sf -X POST "$API/contacts" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"email\":\"smoke-$STAMP@example.com\",\"first_name\":\"Smoke\",\"last_name\":\"Test\"}")
+echo "$CT" | grep -q "smoke-$STAMP@example.com"
+CT_ID=$(echo "$CT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts/$CT_ID" | grep -q first_name
+
+echo "== api keys list =="
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/api-keys" | grep -q '"data"'
+
+echo "== domain claim + receiving =="
+curl -sf -X POST "$API/domains/$DOM_ID/claim" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" | grep -q Claim
+curl -sf -X POST "$API/domains/$DOM_ID/claim/confirm" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" | grep -q claimed_at
+curl -sf -X POST "$API/domains/$DOM_ID/receiving" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{"enabled":true}' | grep -q '"receiving_enabled":true'
+
+echo "== domain delete =="
+curl -sf -X DELETE "$API/domains/$DOM_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" \
+  | grep -q '"deleted":true'
+
+echo "== logs =="
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/logs" | grep -q '"data"'
+
+echo "== suppressions =="
+SP=$(curl -sf -X POST "$API/suppressions" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"email\":\"blocked-$STAMP@example.com\",\"reason\":\"manual\"}")
+SP_ID=$(echo "$SP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/suppressions" | grep -q "blocked-$STAMP@example.com"
+curl -sf -X DELETE "$API/suppressions/$SP_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" \
+  | grep -q '"deleted":true'
+
+echo "== template =="
+TP=$(curl -sf -X POST "$API/templates" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"name\":\"smoke-$STAMP\",\"subject\":\"Hi\",\"html\":\"<p>hi</p>\"}")
+TP_ID=$(echo "$TP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -X POST "$API/templates/$TP_ID/publish" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" \
+  | grep -q '"status":"published"'
+
+echo "== broadcast =="
+BC=$(curl -sf -X POST "$API/broadcasts" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"from\":\"Acme <hello@acme.test>\",\"subject\":\"Smoke broadcast\",\"html\":\"<p>bc</p>\",\"name\":\"smoke-$STAMP\"}")
+BC_ID=$(echo "$BC" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -X POST "$API/broadcasts/$BC_ID/send" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{}' | grep -q '"status"'
+curl -sf -X DELETE "$API/broadcasts/$BC_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" \
+  | grep -q '"deleted":true'
+
+echo "== automations =="
+AU=$(curl -sf -X POST "$API/automations" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"name\":\"smoke-$STAMP\",\"trigger_type\":\"contact.created\",\"steps\":[{\"type\":\"wait\",\"config\":{\"seconds\":1}}]}")
+AU_ID=$(echo "$AU" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -X PATCH "$API/automations/$AU_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{"enabled":true}' | grep -q '"enabled":true'
+
+echo "== ip pools =="
+curl -sf -X POST "$API/ip-pools" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"name\":\"smoke-$STAMP\",\"region\":\"us-east-1\"}" | grep -q '"warmup"'
+
+echo "== regions =="
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/domains/regions" | grep -q us-east-1
+
+echo "== oauth app =="
+OA=$(curl -sf -X POST "$API/oauth/apps" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"name\":\"smoke-$STAMP\",\"redirect_uris\":[\"http://localhost:9999/cb\"]}")
+echo "$OA" | grep -q client_id
+OA_ID=$(echo "$OA" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -X DELETE "$API/oauth/apps/$OA_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" | grep -q '"deleted":true'
+
 echo "== provision =="
 curl -sf -X POST "$API/console/provision" \
   -H "Content-Type: application/json" -H "User-Agent: $UA" \

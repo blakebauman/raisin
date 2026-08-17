@@ -10,11 +10,11 @@ import (
 	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	"github.com/joho/godotenv"
-	"github.com/raisin-run/raisin/internal/auth"
-	"github.com/raisin-run/raisin/internal/config"
-	"github.com/raisin-run/raisin/internal/db"
-	"github.com/raisin-run/raisin/internal/email"
-	"github.com/raisin-run/raisin/internal/jobs"
+	"github.com/blakebauman/raisin/internal/auth"
+	"github.com/blakebauman/raisin/internal/config"
+	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/email"
+	"github.com/blakebauman/raisin/internal/jobs"
 )
 
 // SMTP relay — AUTH PLAIN with API key as password (username ignored / "raisin").

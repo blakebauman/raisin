@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/raisin-run/raisin/internal/apierr"
-	"github.com/raisin-run/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/db"
 )
 
 type Service struct {
@@ -17,24 +17,28 @@ type Service struct {
 }
 
 type Template struct {
-	ID          uuid.UUID `json:"id"`
-	Name        string    `json:"name"`
-	Subject     *string   `json:"subject"`
-	HTML        *string   `json:"html"`
-	Text        *string   `json:"text"`
-	Variables   []any     `json:"variables"`
-	Status      string    `json:"status"`
-	PublishedAt *time.Time `json:"published_at,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          uuid.UUID       `json:"id"`
+	Name        string          `json:"name"`
+	Subject     *string         `json:"subject"`
+	HTML        *string         `json:"html"`
+	Text        *string         `json:"text"`
+	ReactSource *string         `json:"react_source,omitempty"`
+	EditorJSON  json.RawMessage `json:"editor_json,omitempty"`
+	Variables   []any           `json:"variables"`
+	Status      string          `json:"status"`
+	PublishedAt *time.Time      `json:"published_at,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 type CreateRequest struct {
-	Name      string `json:"name"`
-	Subject   string `json:"subject"`
-	HTML      string `json:"html"`
-	Text      string `json:"text"`
-	Variables []any  `json:"variables"`
+	Name        string          `json:"name"`
+	Subject     string          `json:"subject"`
+	HTML        string          `json:"html"`
+	Text        string          `json:"text"`
+	ReactSource string          `json:"react_source"`
+	EditorJSON  json.RawMessage `json:"editor_json"`
+	Variables   []any           `json:"variables"`
 }
 
 func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateRequest) (*Template, error) {
@@ -45,11 +49,15 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateReques
 	if vj == nil {
 		vj = []byte("[]")
 	}
+	ej := req.EditorJSON
+	if len(ej) == 0 {
+		ej = []byte("{}")
+	}
 	var id uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
-		INSERT INTO templates (team_id, name, subject, html, text, variables)
-		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id
-	`, teamID, req.Name, nullStr(req.Subject), nullStr(req.HTML), nullStr(req.Text), vj).Scan(&id)
+		INSERT INTO templates (team_id, name, subject, html, text, variables, react_source, editor_json)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id
+	`, teamID, req.Name, nullStr(req.Subject), nullStr(req.HTML), nullStr(req.Text), vj, nullStr(req.ReactSource), ej).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -60,9 +68,9 @@ func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*Template, err
 	var t Template
 	var vars []byte
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, name, subject, html, text, variables, status, published_at, created_at, updated_at
+		SELECT id, name, subject, html, text, react_source, editor_json, variables, status, published_at, created_at, updated_at
 		FROM templates WHERE id = $1 AND team_id = $2
-	`, id, teamID).Scan(&t.ID, &t.Name, &t.Subject, &t.HTML, &t.Text, &vars, &t.Status, &t.PublishedAt, &t.CreatedAt, &t.UpdatedAt)
+	`, id, teamID).Scan(&t.ID, &t.Name, &t.Subject, &t.HTML, &t.Text, &t.ReactSource, &t.EditorJSON, &vars, &t.Status, &t.PublishedAt, &t.CreatedAt, &t.UpdatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, apierr.NotFound
 	}
@@ -75,7 +83,7 @@ func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*Template, err
 
 func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*Template, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, name, subject, html, text, variables, status, published_at, created_at, updated_at
+		SELECT id, name, subject, html, text, react_source, editor_json, variables, status, published_at, created_at, updated_at
 		FROM templates WHERE team_id = $1 ORDER BY created_at DESC
 	`, teamID)
 	if err != nil {
@@ -86,7 +94,7 @@ func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*Template, erro
 	for rows.Next() {
 		var t Template
 		var vars []byte
-		if err := rows.Scan(&t.ID, &t.Name, &t.Subject, &t.HTML, &t.Text, &vars, &t.Status, &t.PublishedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Subject, &t.HTML, &t.Text, &t.ReactSource, &t.EditorJSON, &vars, &t.Status, &t.PublishedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(vars, &t.Variables)
@@ -100,12 +108,19 @@ func (s *Service) Update(ctx context.Context, teamID, id uuid.UUID, req CreateRe
 	if vj == nil {
 		vj = []byte("[]")
 	}
+	ej := req.EditorJSON
+	if len(ej) == 0 {
+		ej = nil
+	}
 	_, err := s.Pool.Exec(ctx, `
 		UPDATE templates SET name = COALESCE(NULLIF($3,''), name),
 			subject = COALESCE($4, subject), html = COALESCE($5, html), text = COALESCE($6, text),
-			variables = $7, updated_at = now()
+			variables = $7,
+			react_source = COALESCE($8, react_source),
+			editor_json = COALESCE($9, editor_json),
+			updated_at = now()
 		WHERE id = $1 AND team_id = $2
-	`, id, teamID, req.Name, nullStr(req.Subject), nullStr(req.HTML), nullStr(req.Text), vj)
+	`, id, teamID, req.Name, nullStr(req.Subject), nullStr(req.HTML), nullStr(req.Text), vj, nullStr(req.ReactSource), ej)
 	if err != nil {
 		return nil, err
 	}
@@ -138,8 +153,13 @@ func (s *Service) Duplicate(ctx context.Context, teamID, id uuid.UUID) (*Templat
 	if src.Text != nil {
 		text = *src.Text
 	}
+	react := ""
+	if src.ReactSource != nil {
+		react = *src.ReactSource
+	}
 	return s.Create(ctx, teamID, CreateRequest{
-		Name: src.Name + " (copy)", Subject: subj, HTML: html, Text: text, Variables: src.Variables,
+		Name: src.Name + " (copy)", Subject: subj, HTML: html, Text: text, ReactSource: react,
+		EditorJSON: src.EditorJSON, Variables: src.Variables,
 	})
 }
 

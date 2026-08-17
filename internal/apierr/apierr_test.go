@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/raisin-run/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/apierr"
 )
 
 func TestWrite(t *testing.T) {

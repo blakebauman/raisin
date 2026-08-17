@@ -19,16 +19,19 @@ import (
 const DefaultBaseURL = "https://api.raisin.run"
 
 type Client struct {
-	APIKey     string
-	BaseURL    string
-	HTTPClient *http.Client
-	Emails     *EmailsService
-	Domains    *DomainsService
-	Webhooks   *WebhooksService
-	APIKeys    *APIKeysService
-	Contacts   *ContactsService
-	Templates  *TemplatesService
-	Broadcasts *BroadcastsService
+	APIKey       string
+	BaseURL      string
+	HTTPClient   *http.Client
+	Emails       *EmailsService
+	Domains      *DomainsService
+	Webhooks     *WebhooksService
+	APIKeys      *APIKeysService
+	Contacts     *ContactsService
+	Templates    *TemplatesService
+	Broadcasts   *BroadcastsService
+	Suppressions *SuppressionsService
+	Automations  *AutomationsService
+	IPPools      *IPPoolsService
 }
 
 func NewClient(apiKey string) *Client {
@@ -44,6 +47,9 @@ func NewClient(apiKey string) *Client {
 	c.Contacts = &ContactsService{c: c}
 	c.Templates = &TemplatesService{c: c}
 	c.Broadcasts = &BroadcastsService{c: c}
+	c.Suppressions = &SuppressionsService{c: c}
+	c.Automations = &AutomationsService{c: c}
+	c.IPPools = &IPPoolsService{c: c}
 	return c
 }
 
@@ -154,9 +160,13 @@ func (s *EmailsService) Cancel(ctx context.Context, id string) error {
 
 type DomainsService struct{ c *Client }
 
-func (s *DomainsService) Create(ctx context.Context, name string) (map[string]any, error) {
+func (s *DomainsService) Create(ctx context.Context, name string, region ...string) (map[string]any, error) {
+	body := map[string]string{"name": name}
+	if len(region) > 0 && region[0] != "" {
+		body["region"] = region[0]
+	}
 	var out map[string]any
-	if err := s.c.do(ctx, http.MethodPost, "/domains", map[string]string{"name": name}, &out); err != nil {
+	if err := s.c.do(ctx, http.MethodPost, "/domains", body, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -188,6 +198,46 @@ func (s *DomainsService) Verify(ctx context.Context, id string) (map[string]any,
 
 func (s *DomainsService) Delete(ctx context.Context, id string) error {
 	return s.c.do(ctx, http.MethodDelete, "/domains/"+id, nil, nil)
+}
+
+func (s *DomainsService) Regions(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/domains/regions", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *DomainsService) Claim(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/domains/"+id+"/claim", map[string]any{}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *DomainsService) ConfirmClaim(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/domains/"+id+"/claim/confirm", map[string]any{}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *DomainsService) SetBIMI(ctx context.Context, id string, body map[string]any) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/domains/"+id+"/bimi", body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *DomainsService) SetReceiving(ctx context.Context, id string, enabled bool) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/domains/"+id+"/receiving", map[string]any{"enabled": enabled}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 type WebhooksService struct{ c *Client }
@@ -248,9 +298,23 @@ func (s *APIKeysService) List(ctx context.Context) (map[string]any, error) {
 
 type ContactsService struct{ c *Client }
 
-func (s *ContactsService) Create(ctx context.Context, email string) (map[string]any, error) {
+type ContactCreateOpts struct {
+	FirstName string
+	LastName  string
+}
+
+func (s *ContactsService) Create(ctx context.Context, email string, opts *ContactCreateOpts) (map[string]any, error) {
+	body := map[string]any{"email": email}
+	if opts != nil {
+		if opts.FirstName != "" {
+			body["first_name"] = opts.FirstName
+		}
+		if opts.LastName != "" {
+			body["last_name"] = opts.LastName
+		}
+	}
 	var out map[string]any
-	if err := s.c.do(ctx, http.MethodPost, "/contacts", map[string]string{"email": email}, &out); err != nil {
+	if err := s.c.do(ctx, http.MethodPost, "/contacts", body, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -298,6 +362,79 @@ func (s *BroadcastsService) Send(ctx context.Context, id string) (map[string]any
 		return nil, err
 	}
 	return out, nil
+}
+
+type SuppressionsService struct{ c *Client }
+
+func (s *SuppressionsService) Create(ctx context.Context, email, reason string) (map[string]any, error) {
+	if reason == "" {
+		reason = "manual"
+	}
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/suppressions", map[string]string{"email": email, "reason": reason}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *SuppressionsService) List(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/suppressions", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *SuppressionsService) Delete(ctx context.Context, id string) error {
+	return s.c.do(ctx, http.MethodDelete, "/suppressions/"+id, nil, nil)
+}
+
+type AutomationsService struct{ c *Client }
+
+func (s *AutomationsService) Create(ctx context.Context, body map[string]any) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/automations", body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *AutomationsService) List(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/automations", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *AutomationsService) Enable(ctx context.Context, id string, enabled bool) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPatch, "/automations/"+id, map[string]any{"enabled": enabled}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type IPPoolsService struct{ c *Client }
+
+func (s *IPPoolsService) Create(ctx context.Context, name, region string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/ip-pools", map[string]string{"name": name, "region": region}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *IPPoolsService) List(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/ip-pools", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *IPPoolsService) AssignDomain(ctx context.Context, poolID, domainID string) error {
+	return s.c.do(ctx, http.MethodPost, "/ip-pools/"+poolID+"/assign-domain", map[string]string{"domain_id": domainID}, nil)
 }
 
 // VerifyWebhookSignature checks Raisin-Signature: t=<unix>,v1=<hex>

@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/raisin-run/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/apierr"
 )
 
 func (s *Server) listAttachments(w http.ResponseWriter, r *http.Request) {
@@ -114,10 +114,24 @@ func (s *Server) inboundSES(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, apierr.Validation("team_id required"))
 		return
 	}
-	rec, err := s.Inbound.Store(r.Context(), teamID, direct.From, direct.To, direct.Subject, direct.HTML, direct.Text, direct.S3Key)
+	rec, err := s.Inbound.Store(r.Context(), teamID, direct.From, direct.To, direct.Subject, direct.HTML, direct.Text, direct.S3Key, "", nil)
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if s.Automations != nil {
+		_ = s.Automations.Trigger(r.Context(), teamID, "email.received", nil, nil, &rec.ID, map[string]any{
+			"received_email_id": rec.ID.String(),
+			"from":              rec.From,
+			"subject":           rec.Subject,
+		})
+	}
+	if s.Webhooks != nil {
+		_ = s.Webhooks.Fanout(r.Context(), teamID, "email.received", map[string]any{
+			"received_email_id": rec.ID.String(),
+			"from":              rec.From,
+			"to":                rec.To,
+		})
 	}
 	apierr.WriteJSON(w, 200, rec)
 }

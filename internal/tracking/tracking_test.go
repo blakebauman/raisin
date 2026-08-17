@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/raisin-run/raisin/internal/tracking"
+	"github.com/blakebauman/raisin/internal/tracking"
 )
 
 func TestInject(t *testing.T) {

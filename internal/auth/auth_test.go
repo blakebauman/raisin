@@ -3,7 +3,7 @@ package auth_test
 import (
 	"testing"
 
-	"github.com/raisin-run/raisin/internal/auth"
+	"github.com/blakebauman/raisin/internal/auth"
 )
 
 func TestHashKeyStable(t *testing.T) {

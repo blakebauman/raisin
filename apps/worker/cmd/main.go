@@ -10,18 +10,21 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/raisin-run/raisin/internal/billing"
-	"github.com/raisin-run/raisin/internal/config"
-	"github.com/raisin-run/raisin/internal/db"
-	"github.com/raisin-run/raisin/internal/domain"
-	"github.com/raisin-run/raisin/internal/events"
-	"github.com/raisin-run/raisin/internal/jobs"
-	jobhandlers "github.com/raisin-run/raisin/internal/jobs/handlers"
-	"github.com/raisin-run/raisin/internal/logging"
-	"github.com/raisin-run/raisin/internal/sender"
-	"github.com/raisin-run/raisin/internal/storage"
-	"github.com/raisin-run/raisin/internal/suppression"
-	"github.com/raisin-run/raisin/internal/webhook"
+	"github.com/blakebauman/raisin/internal/automation"
+	"github.com/blakebauman/raisin/internal/billing"
+	"github.com/blakebauman/raisin/internal/config"
+	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/domain"
+	"github.com/blakebauman/raisin/internal/email"
+	"github.com/blakebauman/raisin/internal/events"
+	"github.com/blakebauman/raisin/internal/ippool"
+	"github.com/blakebauman/raisin/internal/jobs"
+	jobhandlers "github.com/blakebauman/raisin/internal/jobs/handlers"
+	"github.com/blakebauman/raisin/internal/logging"
+	"github.com/blakebauman/raisin/internal/sender"
+	"github.com/blakebauman/raisin/internal/storage"
+	"github.com/blakebauman/raisin/internal/suppression"
+	"github.com/blakebauman/raisin/internal/webhook"
 )
 
 func main() {
@@ -53,11 +56,15 @@ func main() {
 	wh := &webhook.Service{Pool: pool, Client: asynqClient}
 	bill := &billing.Service{Pool: pool, SecretKey: cfg.StripeSecretKey}
 	supp := &suppression.Service{Pool: pool}
-	proc := &events.Processor{Pool: pool, Webhooks: wh, Suppressions: supp, Billing: bill}
+	auto := &automation.Service{Pool: pool, Client: asynqClient}
+	proc := &events.Processor{Pool: pool, Webhooks: wh, Suppressions: supp, Billing: bill, Automations: auto}
 	dom := &domain.Service{Pool: pool, Identity: sender.NewIdentity(cfg)}
+	ips := &ippool.Service{Pool: pool}
+	emails := &email.Service{Pool: pool, Client: asynqClient, Storage: store}
 
 	h := &jobhandlers.Handlers{
-		Cfg: cfg, Pool: pool, Sender: snd, Webhooks: wh, Billing: bill, Events: proc, Asynq: asynqClient, Storage: store, Domains: dom,
+		Cfg: cfg, Pool: pool, Sender: snd, Webhooks: wh, Billing: bill, Events: proc,
+		Asynq: asynqClient, Storage: store, Domains: dom, Emails: emails, IPPools: ips,
 	}
 
 	server := jobs.NewServer(cfg)

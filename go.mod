@@ -1,4 +1,4 @@
-module github.com/raisin-run/raisin
+module github.com/blakebauman/raisin
 
 go 1.26.4
 

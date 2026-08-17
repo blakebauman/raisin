@@ -10,7 +10,7 @@ networkPolicy:
 api:
   replicaCount: 2
   image:
-    repository: ghcr.io/raisin-run/raisin-api
+    repository: ghcr.io/blakebauman/raisin-api
     tag: latest
   service:
     port: 8080
@@ -20,7 +20,7 @@ api:
 worker:
   replicaCount: 2
   image:
-    repository: ghcr.io/raisin-run/raisin-worker
+    repository: ghcr.io/blakebauman/raisin-worker
     tag: latest
   service:
     port: 8081
@@ -30,7 +30,7 @@ worker:
 smtp:
   replicaCount: 1
   image:
-    repository: ghcr.io/raisin-run/raisin-smtp
+    repository: ghcr.io/blakebauman/raisin-smtp
     tag: latest
   service:
     port: 2525
@@ -40,7 +40,7 @@ smtp:
 console:
   replicaCount: 2
   image:
-    repository: ghcr.io/raisin-run/raisin-console
+    repository: ghcr.io/blakebauman/raisin-console
     tag: latest
   service:
     port: 3000

@@ -11,18 +11,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
-	"github.com/raisin-run/raisin/internal/auth"
-	"github.com/raisin-run/raisin/internal/billing"
-	"github.com/raisin-run/raisin/internal/config"
-	"github.com/raisin-run/raisin/internal/db"
-	"github.com/raisin-run/raisin/internal/domain"
-	"github.com/raisin-run/raisin/internal/email"
-	"github.com/raisin-run/raisin/internal/events"
-	"github.com/raisin-run/raisin/internal/jobs"
-	"github.com/raisin-run/raisin/internal/sender"
-	"github.com/raisin-run/raisin/internal/storage"
-	"github.com/raisin-run/raisin/internal/tracking"
-	"github.com/raisin-run/raisin/internal/webhook"
+	"github.com/blakebauman/raisin/internal/auth"
+	"github.com/blakebauman/raisin/internal/billing"
+	"github.com/blakebauman/raisin/internal/config"
+	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/domain"
+	"github.com/blakebauman/raisin/internal/email"
+	"github.com/blakebauman/raisin/internal/events"
+	"github.com/blakebauman/raisin/internal/jobs"
+	"github.com/blakebauman/raisin/internal/sender"
+	"github.com/blakebauman/raisin/internal/storage"
+	"github.com/blakebauman/raisin/internal/tracking"
+	"github.com/blakebauman/raisin/internal/webhook"
 )
 
 type Handlers struct {
@@ -35,6 +35,10 @@ type Handlers struct {
 	Asynq    *asynq.Client
 	Storage  storage.Store
 	Domains  *domain.Service
+	Emails   *email.Service
+	IPPools  interface {
+		ReserveSend(ctx context.Context, poolID uuid.UUID) (string, error)
+	}
 }
 
 func (h *Handlers) Mux() *asynq.ServeMux {
@@ -43,6 +47,7 @@ func (h *Handlers) Mux() *asynq.ServeMux {
 	mux.HandleFunc(jobs.TypeWebhookDeliver, h.HandleWebhookDeliver)
 	mux.HandleFunc(jobs.TypeBroadcastSend, h.HandleBroadcastSend)
 	mux.HandleFunc(jobs.TypeDomainVerify, h.HandleDomainVerify)
+	mux.HandleFunc(jobs.TypeAutomationStep, h.HandleAutomationStep)
 	return mux
 }
 
@@ -139,10 +144,27 @@ func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
 		})
 	}
 
+	configSet := h.Cfg.SESConfigurationSet
+	if domainID != nil {
+		var poolID *uuid.UUID
+		_ = h.Pool.QueryRow(ctx, `SELECT ip_pool_id FROM domains WHERE id = $1`, *domainID).Scan(&poolID)
+		if poolID != nil && h.IPPools != nil {
+			cs, err := h.IPPools.ReserveSend(ctx, *poolID)
+			if err != nil {
+				_, _ = h.Pool.Exec(ctx, `UPDATE emails SET status = 'failed', updated_at = now() WHERE id = $1`, emailID)
+				_ = h.Events.RecordLocalEvent(ctx, teamID, emailID, "email.failed", map[string]any{"error": err.Error()})
+				return err
+			}
+			if cs != "" {
+				configSet = cs
+			}
+		}
+	}
+
 	res, err := h.Sender.Send(ctx, sender.Message{
 		From: from, To: to, Cc: cc, Bcc: bcc, ReplyTo: replyTo,
 		Subject: subject, HTML: htmlBody, Text: textBody,
-		Headers: headers, ConfigSet: h.Cfg.SESConfigurationSet,
+		Headers: headers, ConfigSet: configSet,
 		Tags:        map[string]string{"email_id": emailID.String(), "team_id": teamID.String()},
 		Attachments: atts,
 	})

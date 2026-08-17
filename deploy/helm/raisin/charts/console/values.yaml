@@ -1,6 +1,6 @@
 replicaCount: 2
 image:
-  repository: ghcr.io/raisin-run/raisin-console
+  repository: ghcr.io/blakebauman/raisin-console
   tag: latest
 service:
   port: 3000

@@ -11,11 +11,11 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/google/uuid"
-	"github.com/raisin-run/raisin/internal/billing"
-	"github.com/raisin-run/raisin/internal/config"
-	"github.com/raisin-run/raisin/internal/db"
-	"github.com/raisin-run/raisin/internal/suppression"
-	"github.com/raisin-run/raisin/internal/webhook"
+	"github.com/blakebauman/raisin/internal/billing"
+	"github.com/blakebauman/raisin/internal/config"
+	"github.com/blakebauman/raisin/internal/db"
+	"github.com/blakebauman/raisin/internal/suppression"
+	"github.com/blakebauman/raisin/internal/webhook"
 )
 
 type Processor struct {
@@ -23,6 +23,9 @@ type Processor struct {
 	Webhooks     *webhook.Service
 	Suppressions *suppression.Service
 	Billing      *billing.Service
+	Automations  interface {
+		Trigger(ctx context.Context, teamID uuid.UUID, triggerType string, contactID, emailID, receivedID *uuid.UUID, contextData map[string]any) error
+	}
 }
 
 type SESEvent struct {
@@ -96,6 +99,11 @@ func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
 		"message_id": ev.Mail.MessageID,
 		"type":       mapped,
 	})
+	if p.Automations != nil {
+		_ = p.Automations.Trigger(ctx, teamID, mapped, nil, &emailID, nil, map[string]any{
+			"email_id": emailID.String(), "type": mapped,
+		})
+	}
 	return nil
 }
 
@@ -110,7 +118,15 @@ func (p *Processor) RecordLocalEvent(ctx context.Context, teamID, emailID uuid.U
 	if st := statusFromEvent(eventType); st != "" {
 		_, _ = p.Pool.Exec(ctx, `UPDATE emails SET status = $2, updated_at = now() WHERE id = $1`, emailID, st)
 	}
-	return p.Webhooks.Fanout(ctx, teamID, eventType, data)
+	if err := p.Webhooks.Fanout(ctx, teamID, eventType, data); err != nil {
+		return err
+	}
+	if p.Automations != nil {
+		_ = p.Automations.Trigger(ctx, teamID, eventType, nil, &emailID, nil, map[string]any{
+			"email_id": emailID.String(), "type": eventType,
+		})
+	}
+	return nil
 }
 
 func mapSESType(t string) string {

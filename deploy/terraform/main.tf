@@ -95,13 +95,13 @@ module "s3" {
 }
 
 module "ses" {
-  source               = "./modules/ses"
-  name                 = local.name
-  domain               = var.domain
-  inbound_bucket       = module.s3.inbound_bucket
-  inbound_bucket_arn   = module.s3.inbound_arn
-  inbound_webhook_url  = var.inbound_webhook_url
-  tags                 = local.tags
+  source              = "./modules/ses"
+  name                = local.name
+  domain              = var.domain
+  inbound_bucket      = module.s3.inbound_bucket
+  inbound_bucket_arn  = module.s3.inbound_arn
+  inbound_webhook_url = var.inbound_webhook_url
+  tags                = local.tags
 }
 
 # IRSA permissions for api/worker pods (S3 attachments, SQS events, SES send)

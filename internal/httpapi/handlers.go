@@ -7,14 +7,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/raisin-run/raisin/internal/apierr"
-	"github.com/raisin-run/raisin/internal/auth"
-	"github.com/raisin-run/raisin/internal/broadcast"
-	"github.com/raisin-run/raisin/internal/domain"
-	"github.com/raisin-run/raisin/internal/email"
-	"github.com/raisin-run/raisin/internal/jobs"
-	"github.com/raisin-run/raisin/internal/template"
-	"github.com/raisin-run/raisin/internal/webhook"
+	"github.com/blakebauman/raisin/internal/apierr"
+	"github.com/blakebauman/raisin/internal/auth"
+	"github.com/blakebauman/raisin/internal/broadcast"
+	"github.com/blakebauman/raisin/internal/domain"
+	"github.com/blakebauman/raisin/internal/email"
+	"github.com/blakebauman/raisin/internal/jobs"
+	"github.com/blakebauman/raisin/internal/template"
+	"github.com/blakebauman/raisin/internal/webhook"
 )
 
 func (s *Server) sendEmail(w http.ResponseWriter, r *http.Request) {
@@ -441,7 +441,10 @@ func (s *Server) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		Events   []string `json:"events"`
 		Enabled  *bool    `json:"enabled"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	wh, err := s.Webhooks.Update(r.Context(), team.ID, id, body.Endpoint, body.Events, body.Enabled)
 	if err != nil {
 		writeErr(w, err)
@@ -475,7 +478,10 @@ func (s *Server) addSuppression(w http.ResponseWriter, r *http.Request) {
 		Email  string `json:"email"`
 		Reason string `json:"reason"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	sp, err := s.Suppressions.Add(r.Context(), team.ID, body.Email, body.Reason)
 	if err != nil {
 		writeErr(w, err)
@@ -493,7 +499,10 @@ func (s *Server) addSuppressionsBatch(w http.ResponseWriter, r *http.Request) {
 		Emails []string `json:"emails"`
 		Reason string   `json:"reason"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	n, err := s.Suppressions.AddBatch(r.Context(), team.ID, body.Emails, body.Reason)
 	if err != nil {
 		writeErr(w, err)
@@ -539,11 +548,20 @@ func (s *Server) createContact(w http.ResponseWriter, r *http.Request) {
 		LastName   string         `json:"last_name"`
 		Properties map[string]any `json:"properties"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	c, err := s.Audience.CreateContact(r.Context(), team.ID, body.Email, body.FirstName, body.LastName, body.Properties)
 	if err != nil {
 		writeErr(w, err)
 		return
+	}
+	if s.Automations != nil {
+		_ = s.Automations.Trigger(r.Context(), team.ID, "contact.created", &c.ID, nil, nil, map[string]any{
+			"contact_id": c.ID.String(),
+			"email":      c.Email,
+		})
 	}
 	apierr.WriteJSON(w, 200, c)
 }
@@ -592,7 +610,10 @@ func (s *Server) updateContact(w http.ResponseWriter, r *http.Request) {
 		LastName     *string `json:"last_name"`
 		Unsubscribed *bool   `json:"unsubscribed"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	c, err := s.Audience.UpdateContact(r.Context(), team.ID, id, body.FirstName, body.LastName, body.Unsubscribed)
 	if err != nil {
 		writeErr(w, err)
@@ -631,8 +652,7 @@ func (s *Server) addContactSegment(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, apierr.Validation("invalid segment id"))
 		return
 	}
-	_ = team
-	if err := s.Audience.AddToSegment(r.Context(), sid, cid); err != nil {
+	if err := s.Audience.AddToSegment(r.Context(), team.ID, sid, cid); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -640,6 +660,10 @@ func (s *Server) addContactSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) removeContactSegment(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
 	cid, ok := parseID(w, r)
 	if !ok {
 		return
@@ -649,7 +673,7 @@ func (s *Server) removeContactSegment(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, apierr.Validation("invalid segment id"))
 		return
 	}
-	if err := s.Audience.RemoveFromSegment(r.Context(), sid, cid); err != nil {
+	if err := s.Audience.RemoveFromSegment(r.Context(), team.ID, sid, cid); err != nil {
 		writeErr(w, err)
 		return
 	}
@@ -665,7 +689,10 @@ func (s *Server) createProperty(w http.ResponseWriter, r *http.Request) {
 		Key  string `json:"key"`
 		Type string `json:"type"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	p, err := s.Audience.CreateProperty(r.Context(), team.ID, body.Key, body.Type)
 	if err != nil {
 		writeErr(w, err)
@@ -695,7 +722,10 @@ func (s *Server) createSegment(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	seg, err := s.Audience.CreateSegment(r.Context(), team.ID, body.Name)
 	if err != nil {
 		writeErr(w, err)
@@ -743,7 +773,10 @@ func (s *Server) createTopic(w http.ResponseWriter, r *http.Request) {
 		Description          string `json:"description"`
 		DefaultSubscription  string `json:"default_subscription"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	t, err := s.Audience.CreateTopic(r.Context(), team.ID, body.Name, body.Description, body.DefaultSubscription)
 	if err != nil {
 		writeErr(w, err)
@@ -804,7 +837,10 @@ func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req template.CreateRequest
-	_ = decode(r, &req)
+	if err := decode(r, &req); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	t, err := s.Templates.Create(r.Context(), team.ID, req)
 	if err != nil {
 		writeErr(w, err)
@@ -853,7 +889,10 @@ func (s *Server) updateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req template.CreateRequest
-	_ = decode(r, &req)
+	if err := decode(r, &req); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	t, err := s.Templates.Update(r.Context(), team.ID, id, req)
 	if err != nil {
 		writeErr(w, err)
@@ -918,7 +957,10 @@ func (s *Server) createBroadcast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req broadcast.CreateRequest
-	_ = decode(r, &req)
+	if err := decode(r, &req); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	b, err := s.Broadcasts.Create(r.Context(), team.ID, req)
 	if err != nil {
 		writeErr(w, err)
@@ -1121,7 +1163,10 @@ func (s *Server) createCheckout(w http.ResponseWriter, r *http.Request) {
 		SuccessURL string `json:"success_url"`
 		CancelURL  string `json:"cancel_url"`
 	}
-	_ = decode(r, &body)
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
 	if body.SuccessURL == "" {
 		body.SuccessURL = s.Cfg.ConsoleOrigin + "/settings?success=1"
 	}

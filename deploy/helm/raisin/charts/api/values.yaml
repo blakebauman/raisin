@@ -1,6 +1,6 @@
 replicaCount: 2
 image:
-  repository: ghcr.io/raisin-run/raisin-api
+  repository: ghcr.io/blakebauman/raisin-api
   tag: latest
 service:
   port: 8080

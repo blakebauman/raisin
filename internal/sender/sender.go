@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
 	"github.com/google/uuid"
-	"github.com/raisin-run/raisin/internal/config"
+	"github.com/blakebauman/raisin/internal/config"
 )
 
 type Message struct {
@@ -292,10 +292,10 @@ func buildRawMIME(msg Message) ([]byte, error) {
 
 // IdentityManager creates/verifies SES domain identities
 type IdentityManager interface {
-	CreateDomain(ctx context.Context, domain string) (*IdentityResult, error)
-	GetDomain(ctx context.Context, domain string) (*IdentityResult, error)
-	VerifyDomain(ctx context.Context, domain string) (*IdentityResult, error)
-	DeleteDomain(ctx context.Context, domain string) error
+	CreateDomain(ctx context.Context, domain, region string) (*IdentityResult, error)
+	GetDomain(ctx context.Context, domain, region string) (*IdentityResult, error)
+	VerifyDomain(ctx context.Context, domain, region string) (*IdentityResult, error)
+	DeleteDomain(ctx context.Context, domain, region string) error
 }
 
 type IdentityResult struct {
@@ -311,35 +311,63 @@ type DNSRecord struct {
 }
 
 type SESIdentity struct {
-	client *sesv2.Client
+	clients map[string]*sesv2.Client
+	cfg     config.Config
 }
 
 func NewSESIdentity(cfg config.Config) (*SESIdentity, error) {
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(cfg.AWSRegion))
+	return &SESIdentity{clients: map[string]*sesv2.Client{}, cfg: cfg}, nil
+}
+
+func (s *SESIdentity) clientFor(region string) (*sesv2.Client, error) {
+	if region == "" {
+		region = s.cfg.AWSRegion
+	}
+	if c, ok := s.clients[region]; ok {
+		return c, nil
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(), awsconfig.WithRegion(region))
 	if err != nil {
 		return nil, err
 	}
 	var clientOpts []func(*sesv2.Options)
-	if cfg.AWSEndpointURL != "" {
+	if s.cfg.AWSEndpointURL != "" {
 		clientOpts = append(clientOpts, func(o *sesv2.Options) {
-			o.BaseEndpoint = aws.String(cfg.AWSEndpointURL)
+			o.BaseEndpoint = aws.String(s.cfg.AWSEndpointURL)
 		})
 	}
-	return &SESIdentity{client: sesv2.NewFromConfig(awsCfg, clientOpts...)}, nil
+	c := sesv2.NewFromConfig(awsCfg, clientOpts...)
+	s.clients[region] = c
+	return c, nil
 }
 
-func (s *SESIdentity) CreateDomain(ctx context.Context, domain string) (*IdentityResult, error) {
-	_, err := s.client.CreateEmailIdentity(ctx, &sesv2.CreateEmailIdentityInput{
+func mailFromMX(region string) string {
+	if region == "" {
+		region = "us-east-1"
+	}
+	return "feedback-smtp." + region + ".amazonses.com"
+}
+
+func (s *SESIdentity) CreateDomain(ctx context.Context, domain, region string) (*IdentityResult, error) {
+	client, err := s.clientFor(region)
+	if err != nil {
+		return nil, err
+	}
+	_, err = client.CreateEmailIdentity(ctx, &sesv2.CreateEmailIdentityInput{
 		EmailIdentity: aws.String(domain),
 	})
 	if err != nil && !strings.Contains(err.Error(), "AlreadyExists") {
 		return nil, err
 	}
-	return s.GetDomain(ctx, domain)
+	return s.GetDomain(ctx, domain, region)
 }
 
-func (s *SESIdentity) GetDomain(ctx context.Context, domain string) (*IdentityResult, error) {
-	out, err := s.client.GetEmailIdentity(ctx, &sesv2.GetEmailIdentityInput{
+func (s *SESIdentity) GetDomain(ctx context.Context, domain, region string) (*IdentityResult, error) {
+	client, err := s.clientFor(region)
+	if err != nil {
+		return nil, err
+	}
+	out, err := client.GetEmailIdentity(ctx, &sesv2.GetEmailIdentityInput{
 		EmailIdentity: aws.String(domain),
 	})
 	if err != nil {
@@ -356,18 +384,22 @@ func (s *SESIdentity) GetDomain(ctx context.Context, domain string) (*IdentityRe
 		}
 	}
 	res.SPF = []DNSRecord{
-		{Name: "send." + domain, Type: "MX", Value: "feedback-smtp.us-east-1.amazonses.com"},
+		{Name: "send." + domain, Type: "MX", Value: mailFromMX(region)},
 		{Name: "send." + domain, Type: "TXT", Value: `"v=spf1 include:amazonses.com ~all"`},
 	}
 	return res, nil
 }
 
-func (s *SESIdentity) VerifyDomain(ctx context.Context, domain string) (*IdentityResult, error) {
-	return s.GetDomain(ctx, domain)
+func (s *SESIdentity) VerifyDomain(ctx context.Context, domain, region string) (*IdentityResult, error) {
+	return s.GetDomain(ctx, domain, region)
 }
 
-func (s *SESIdentity) DeleteDomain(ctx context.Context, domain string) error {
-	_, err := s.client.DeleteEmailIdentity(ctx, &sesv2.DeleteEmailIdentityInput{
+func (s *SESIdentity) DeleteDomain(ctx context.Context, domain, region string) error {
+	client, err := s.clientFor(region)
+	if err != nil {
+		return err
+	}
+	_, err = client.DeleteEmailIdentity(ctx, &sesv2.DeleteEmailIdentityInput{
 		EmailIdentity: aws.String(domain),
 	})
 	return err
@@ -377,7 +409,7 @@ func (s *SESIdentity) DeleteDomain(ctx context.Context, domain string) error {
 // Mailpit flows can leave test mode and still send from a "verified" domain.
 type StubIdentity struct{}
 
-func (StubIdentity) CreateDomain(ctx context.Context, domain string) (*IdentityResult, error) {
+func (StubIdentity) CreateDomain(ctx context.Context, domain, region string) (*IdentityResult, error) {
 	return &IdentityResult{
 		Verified: false,
 		DKIM: []DNSRecord{
@@ -386,18 +418,18 @@ func (StubIdentity) CreateDomain(ctx context.Context, domain string) (*IdentityR
 			{Name: "raisin3._domainkey." + domain, Type: "CNAME", Value: "raisin3.dkim.raisin.run"},
 		},
 		SPF: []DNSRecord{
-			{Name: "send." + domain, Type: "MX", Value: "feedback-smtp.us-east-1.amazonses.com"},
+			{Name: "send." + domain, Type: "MX", Value: mailFromMX(region)},
 			{Name: "send." + domain, Type: "TXT", Value: `"v=spf1 include:amazonses.com ~all"`},
 		},
 	}, nil
 }
 
-func (StubIdentity) GetDomain(ctx context.Context, domain string) (*IdentityResult, error) {
-	return StubIdentity{}.CreateDomain(ctx, domain)
+func (StubIdentity) GetDomain(ctx context.Context, domain, region string) (*IdentityResult, error) {
+	return StubIdentity{}.CreateDomain(ctx, domain, region)
 }
 
-func (StubIdentity) VerifyDomain(ctx context.Context, domain string) (*IdentityResult, error) {
-	res, err := StubIdentity{}.CreateDomain(ctx, domain)
+func (StubIdentity) VerifyDomain(ctx context.Context, domain, region string) (*IdentityResult, error) {
+	res, err := StubIdentity{}.CreateDomain(ctx, domain, region)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +437,7 @@ func (StubIdentity) VerifyDomain(ctx context.Context, domain string) (*IdentityR
 	return res, nil
 }
 
-func (StubIdentity) DeleteDomain(ctx context.Context, domain string) error { return nil }
+func (StubIdentity) DeleteDomain(ctx context.Context, domain, region string) error { return nil }
 
 func NewIdentity(cfg config.Config) IdentityManager {
 	if cfg.SenderDriver == "ses" {
