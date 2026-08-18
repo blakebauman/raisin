@@ -24,6 +24,7 @@ import (
 	"github.com/blakebauman/raisin/internal/db"
 	"github.com/blakebauman/raisin/internal/domain"
 	"github.com/blakebauman/raisin/internal/email"
+	"github.com/blakebauman/raisin/internal/events"
 	"github.com/blakebauman/raisin/internal/inbound"
 	"github.com/blakebauman/raisin/internal/ippool"
 	"github.com/blakebauman/raisin/internal/metrics"
@@ -42,6 +43,7 @@ type Server struct {
 	Emails       *email.Service
 	Domains      *domain.Service
 	Webhooks     *webhook.Service
+	Events       *events.Processor
 	Suppressions *suppression.Service
 	Audience     *audience.Service
 	Templates    *template.Service
@@ -128,6 +130,8 @@ func (s *Server) Router() http.Handler {
 			r.Get("/{id}/events", s.listWebhookEvents)
 			r.Get("/{id}/events/{eventId}/attempts", s.listWebhookAttempts)
 		})
+
+		r.Get("/events/stream", s.streamEmailEvents)
 
 		r.Get("/team", s.getTeam)
 		r.Patch("/team", s.updateTeam)
@@ -261,7 +265,7 @@ func oauthRequiredScope(method, path string) string {
 	switch {
 	case strings.HasPrefix(path, "/emails") && method == http.MethodPost && !strings.Contains(path, "/received"):
 		return "emails:send"
-	case strings.HasPrefix(path, "/emails"):
+	case strings.HasPrefix(path, "/emails"), strings.HasPrefix(path, "/events"):
 		return "emails:read"
 	case strings.HasPrefix(path, "/domains") && mutating:
 		return "domains:write"
@@ -384,6 +388,11 @@ func (s *Server) rateLimit(next http.Handler) http.Handler {
 
 func (s *Server) logAPI(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Long-lived SSE must not block api_logs until disconnect.
+		if r.URL.Path == "/events/stream" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)

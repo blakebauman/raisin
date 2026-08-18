@@ -45,6 +45,21 @@ export type RaisinOptions = {
   baseUrl?: string;
 };
 
+export type LiveEmailEvent = {
+  id: string;
+  type: string;
+  created_at: string;
+  data: unknown;
+};
+
+export type StreamEventsOptions = {
+  types?: string[];
+  emailId?: string;
+  /** Resume after this SSE id (email_events.id). Server replays missed events within 1h. */
+  lastEventId?: string;
+  signal?: AbortSignal;
+};
+
 function asArray(v?: string | string[]): string[] | undefined {
   if (v == null) return undefined;
   return Array.isArray(v) ? v : [v];
@@ -57,6 +72,7 @@ export class Raisin {
   readonly domains: Domains;
   readonly apiKeys: ApiKeys;
   readonly webhooks: Webhooks;
+  readonly events: Events;
   readonly contacts: Contacts;
   readonly contactProperties: ContactProperties;
   readonly topics: Topics;
@@ -79,6 +95,7 @@ export class Raisin {
     this.domains = new Domains(this);
     this.apiKeys = new ApiKeys(this);
     this.webhooks = new Webhooks(this);
+    this.events = new Events(this);
     this.contacts = new Contacts(this);
     this.contactProperties = new ContactProperties(this);
     this.topics = new Topics(this);
@@ -283,6 +300,72 @@ class Webhooks {
   }
   listAttempts(webhookId: string, eventId: string) {
     return this.client.request("GET", `/webhooks/${webhookId}/events/${eventId}/attempts`);
+  }
+}
+
+class Events {
+  constructor(private client: Raisin) {}
+
+  /**
+   * Live SSE stream of email delivery/engagement events.
+   * At-least-once: reconnect with `lastEventId` (Last-Event-ID) to replay missed events within 1h.
+   * Prefer webhooks for durable delivery when you cannot hold a socket.
+   */
+  async *stream(opts: StreamEventsOptions = {}): AsyncGenerator<LiveEmailEvent, void, undefined> {
+    const params = new URLSearchParams();
+    if (opts.types?.length) params.set("types", opts.types.join(","));
+    if (opts.emailId) params.set("email_id", opts.emailId);
+    const qs = params.toString();
+
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.client.apiKey}`,
+      Accept: "text/event-stream",
+      "User-Agent": "raisin-node/0.1.0",
+    };
+    if (opts.lastEventId) headers["Last-Event-ID"] = opts.lastEventId;
+
+    const res = await fetch(`${this.client.baseUrl}/events/stream${qs ? `?${qs}` : ""}`, {
+      method: "GET",
+      headers,
+      signal: opts.signal,
+    });
+    if (!res.ok || !res.body) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new Error(text || `events.stream failed (${res.status})`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buf.indexOf("\n\n")) >= 0) {
+        const raw = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const ev = parseSSEData(raw);
+        if (ev) yield ev;
+      }
+    }
+  }
+}
+
+function parseSSEData(raw: string): LiveEmailEvent | null {
+  let data = "";
+  for (const line of raw.split("\n")) {
+    if (line.startsWith(":") || line.trim() === "") continue;
+    if (line.startsWith("data:")) {
+      data += (data ? "\n" : "") + line.slice(5).trimStart();
+    }
+  }
+  if (!data) return null;
+  try {
+    return JSON.parse(data) as LiveEmailEvent;
+  } catch {
+    return null;
   }
 }
 

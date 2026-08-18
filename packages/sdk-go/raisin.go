@@ -25,6 +25,7 @@ type Client struct {
 	Emails       *EmailsService
 	Domains      *DomainsService
 	Webhooks     *WebhooksService
+	Events       *EventsService
 	APIKeys      *APIKeysService
 	Contacts          *ContactsService
 	ContactProperties *ContactPropertiesService
@@ -46,6 +47,7 @@ func NewClient(apiKey string) *Client {
 	c.Emails = &EmailsService{c: c}
 	c.Domains = &DomainsService{c: c}
 	c.Webhooks = &WebhooksService{c: c}
+	c.Events = &EventsService{c: c}
 	c.APIKeys = &APIKeysService{c: c}
 	c.Contacts = &ContactsService{c: c}
 	c.ContactProperties = &ContactPropertiesService{c: c}

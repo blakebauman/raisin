@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { streamEmailEvents } from "@/lib/events-stream";
 import { EmptyState, Msg, PageHeader, SectionLabel, StatusChip } from "@/components/ui";
 
 type Email = {
@@ -30,6 +31,8 @@ export default function EmailDetailPage() {
   const [atts, setAtts] = useState<Attachment[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [live, setLive] = useState(false);
+  const seen = useRef(new Set<string>());
 
   useEffect(() => {
     if (!id) return;
@@ -43,7 +46,9 @@ export default function EmailDetailPage() {
         ]);
         if (cancelled) return;
         setEmail(e);
-        setEvents(ev.data ?? []);
+        const list = ev.data ?? [];
+        seen.current = new Set(list.map((x) => x.id));
+        setEvents(list);
         setAtts(a.data ?? []);
       } catch (e: unknown) {
         if (!cancelled) setError(e instanceof Error ? e.message : "failed to load");
@@ -54,6 +59,67 @@ export default function EmailDetailPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!id) return;
+    const ac = new AbortController();
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const connect = () => {
+      if (cancelled) return;
+      streamEmailEvents({
+        emailId: id,
+        signal: ac.signal,
+        onOpen: () => {
+          if (!cancelled) setLive(true);
+        },
+        onEvent: (ev) => {
+          if (seen.current.has(ev.id)) return;
+          seen.current.add(ev.id);
+          setEvents((prev) => [
+            ...prev,
+            {
+              id: ev.id,
+              type: ev.type,
+              data: ev.data,
+              created_at: ev.created_at,
+            },
+          ]);
+          // Refresh email status chip when delivery/terminal events arrive
+          if (
+            ev.type === "email.delivered" ||
+            ev.type === "email.bounced" ||
+            ev.type === "email.complained" ||
+            ev.type === "email.failed" ||
+            ev.type === "email.sent"
+          ) {
+            apiFetch<Email>(`/emails/${id}`)
+              .then((e) => setEmail(e))
+              .catch(() => {});
+          }
+        },
+      })
+        .then(() => {
+          if (!cancelled) {
+            setLive(false);
+            retryTimer = setTimeout(connect, 1500);
+          }
+        })
+        .catch((e: unknown) => {
+          if (cancelled || (e instanceof DOMException && e.name === "AbortError")) return;
+          setLive(false);
+          retryTimer = setTimeout(connect, 2500);
+        });
+    };
+
+    connect();
+    return () => {
+      cancelled = true;
+      ac.abort();
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [id]);
+
   async function reload() {
     const [e, ev, a] = await Promise.all([
       apiFetch<Email>(`/emails/${id}`),
@@ -61,7 +127,9 @@ export default function EmailDetailPage() {
       apiFetch<{ data: Attachment[] }>(`/emails/${id}/attachments`),
     ]);
     setEmail(e);
-    setEvents(ev.data ?? []);
+    const list = ev.data ?? [];
+    seen.current = new Set(list.map((x) => x.id));
+    setEvents(list);
     setAtts(a.data ?? []);
   }
 
@@ -98,6 +166,16 @@ export default function EmailDetailPage() {
           description={`${email.from} → ${email.to?.join(", ") ?? ""}`}
           actions={
             <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                  live
+                    ? "border-emerald-800/80 bg-emerald-950/40 text-emerald-300"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-500"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-400" : "bg-zinc-600"}`} />
+                {live ? "Live" : "Idle"}
+              </span>
               <StatusChip status={email.status} />
               {canCancel && (
                 <button type="button" disabled={busy} onClick={cancel} className="btn-secondary text-xs">
@@ -114,7 +192,7 @@ export default function EmailDetailPage() {
         <section className="rounded-lg border border-zinc-800 bg-[var(--panel)]/70 p-5">
           <SectionLabel>Timeline</SectionLabel>
           {events.length === 0 ? (
-            <EmptyState title="No events yet" hint="Delivery and engagement events appear here." />
+            <EmptyState title="No events yet" hint="Delivery and engagement events appear here live." />
           ) : (
             <ol className="space-y-3">
               {events.map((ev) => (

@@ -17,10 +17,12 @@ import (
 	"github.com/blakebauman/raisin/internal/snsverify"
 	"github.com/blakebauman/raisin/internal/suppression"
 	"github.com/blakebauman/raisin/internal/webhook"
+	"github.com/redis/go-redis/v9"
 )
 
 type Processor struct {
 	Pool         *db.Pool
+	Redis        *redis.Client
 	Webhooks     *webhook.Service
 	Suppressions *suppression.Service
 	Billing      *billing.Service
@@ -98,9 +100,12 @@ func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
 	}
 
 	data, _ := json.Marshal(ev)
-	_, _ = p.Pool.Exec(ctx, `
+	var eventID uuid.UUID
+	var createdAt time.Time
+	_ = p.Pool.QueryRow(ctx, `
 		INSERT INTO email_events (team_id, email_id, type, data) VALUES ($1,$2,$3,$4)
-	`, teamID, emailID, mapped, data)
+		RETURNING id, created_at
+	`, teamID, emailID, mapped, data).Scan(&eventID, &createdAt)
 
 	// Soft/transient bounces are events only. Permanent bounce/complaint only flip
 	// message status when every known destination was affected (no all-to_addrs guess).
@@ -146,6 +151,12 @@ func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
 	}
 	if mapped == "email.bounced" && ev.Bounce != nil {
 		payload["bounce_type"] = ev.Bounce.BounceType
+	}
+	if eventID != uuid.Nil {
+		liveData, _ := json.Marshal(payload)
+		p.publishLive(ctx, teamID, LiveEvent{
+			ID: eventID, Type: mapped, CreatedAt: createdAt, Data: liveData,
+		})
 	}
 	_ = p.Webhooks.Fanout(ctx, teamID, mapped, payload)
 	if p.Automations != nil {
@@ -240,10 +251,14 @@ func canTransitionStatus(from, to string) bool {
 }
 
 func (p *Processor) RecordLocalEvent(ctx context.Context, teamID, emailID uuid.UUID, eventType string, data any) error {
-	payload, _ := json.Marshal(data)
-	_, err := p.Pool.Exec(ctx, `
+	payloadMap := ensureEmailID(data, emailID)
+	payload, _ := json.Marshal(payloadMap)
+	var eventID uuid.UUID
+	var createdAt time.Time
+	err := p.Pool.QueryRow(ctx, `
 		INSERT INTO email_events (team_id, email_id, type, data) VALUES ($1,$2,$3,$4)
-	`, teamID, emailID, eventType, payload)
+		RETURNING id, created_at
+	`, teamID, emailID, eventType, payload).Scan(&eventID, &createdAt)
 	if err != nil {
 		return err
 	}
@@ -254,7 +269,10 @@ func (p *Processor) RecordLocalEvent(ctx context.Context, teamID, emailID uuid.U
 			_, _ = p.Pool.Exec(ctx, `UPDATE emails SET status = $2, updated_at = now() WHERE id = $1`, emailID, st)
 		}
 	}
-	if err := p.Webhooks.Fanout(ctx, teamID, eventType, data); err != nil {
+	p.publishLive(ctx, teamID, LiveEvent{
+		ID: eventID, Type: eventType, CreatedAt: createdAt, Data: payload,
+	})
+	if err := p.Webhooks.Fanout(ctx, teamID, eventType, payloadMap); err != nil {
 		return err
 	}
 	if p.Automations != nil {
@@ -263,6 +281,27 @@ func (p *Processor) RecordLocalEvent(ctx context.Context, teamID, emailID uuid.U
 		})
 	}
 	return nil
+}
+
+func ensureEmailID(data any, emailID uuid.UUID) map[string]any {
+	out := map[string]any{}
+	switch v := data.(type) {
+	case map[string]any:
+		for k, val := range v {
+			out[k] = val
+		}
+	case nil:
+		// empty
+	default:
+		b, err := json.Marshal(v)
+		if err == nil {
+			_ = json.Unmarshal(b, &out)
+		}
+	}
+	if _, ok := out["email_id"]; !ok {
+		out["email_id"] = emailID.String()
+	}
+	return out
 }
 
 func mapSESType(t string) string {

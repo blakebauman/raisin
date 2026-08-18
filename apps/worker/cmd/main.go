@@ -25,6 +25,7 @@ import (
 	"github.com/blakebauman/raisin/internal/storage"
 	"github.com/blakebauman/raisin/internal/suppression"
 	"github.com/blakebauman/raisin/internal/webhook"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -53,11 +54,14 @@ func main() {
 	asynqClient := jobs.NewClient(cfg)
 	defer asynqClient.Close()
 
+	rdb := redis.NewClient(&redis.Options{Addr: redisAddr(cfg.RedisURL)})
+	defer rdb.Close()
+
 	wh := &webhook.Service{Pool: pool, Client: asynqClient}
 	bill := &billing.Service{Pool: pool, SecretKey: cfg.StripeSecretKey}
 	supp := &suppression.Service{Pool: pool}
 	auto := &automation.Service{Pool: pool, Client: asynqClient}
-	proc := &events.Processor{Pool: pool, Webhooks: wh, Suppressions: supp, Billing: bill, Automations: auto}
+	proc := &events.Processor{Pool: pool, Redis: rdb, Webhooks: wh, Suppressions: supp, Billing: bill, Automations: auto}
 	dom := &domain.Service{Pool: pool, Identity: sender.NewIdentity(cfg)}
 	ips := &ippool.Service{Pool: pool, ConfigSets: sender.NewConfigurationSets(cfg), LocalIPs: cfg.SenderDriver != "ses"}
 	emails := &email.Service{Pool: pool, Client: asynqClient, Storage: store}
@@ -122,4 +126,19 @@ func main() {
 	defer cancel2()
 	_ = httpSrv.Shutdown(shCtx)
 	_ = os.Stdout
+}
+
+func redisAddr(u string) string {
+	if len(u) > 8 && u[:8] == "redis://" {
+		u = u[8:]
+	}
+	for i, c := range u {
+		if c == '/' {
+			return u[:i]
+		}
+	}
+	if u == "" {
+		return "localhost:6379"
+	}
+	return u
 }

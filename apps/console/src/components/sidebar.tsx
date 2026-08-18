@@ -19,6 +19,7 @@ import {
   Server,
   Shield,
   Tags,
+  Activity,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: typeof Mail };
@@ -31,6 +32,7 @@ const groups: { label?: string; items: NavItem[] }[] = [
     label: "Mail",
     items: [
       { href: "/emails", label: "Emails", icon: Mail },
+      { href: "/activity", label: "Activity", icon: Activity },
       { href: "/received", label: "Received", icon: Inbox },
     ],
   },

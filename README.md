@@ -105,6 +105,23 @@ from raisin import verify_webhook_signature
 verify_webhook_signature(secret, header, body)
 ```
 
+### Live event stream (SSE)
+
+`GET /events/stream` pushes `email.sent` / `email.delivered` / `email.opened` / `email.clicked` / … over Server-Sent Events (Redis pub/sub). Opens/clicks are near-instant after the tracking hit; delivery follows SES→SNS→SQS. Reconnect with `Last-Event-ID` to replay missed events (1h). Webhooks remain the durable at-least-once path.
+
+```ts
+import { Raisin } from "@raisin-run/sdk";
+const raisin = new Raisin("ra_…");
+for await (const ev of raisin.events.stream({ types: ["email.opened", "email.clicked"] })) {
+  console.log(ev.type, ev.data);
+}
+```
+
+```go
+events, errs, err := client.Events.Stream(ctx, &raisin.StreamOpts{Types: []string{"email.delivered"}})
+// range events; check errs; cancel ctx to disconnect
+```
+
 ## SDKs
 
 ```ts

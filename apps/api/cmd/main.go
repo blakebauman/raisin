@@ -18,6 +18,7 @@ import (
 	"github.com/blakebauman/raisin/internal/db"
 	"github.com/blakebauman/raisin/internal/domain"
 	"github.com/blakebauman/raisin/internal/email"
+	"github.com/blakebauman/raisin/internal/events"
 	"github.com/blakebauman/raisin/internal/httpapi"
 	"github.com/blakebauman/raisin/internal/inbound"
 	"github.com/blakebauman/raisin/internal/ippool"
@@ -64,6 +65,7 @@ func main() {
 		Emails:       &email.Service{Pool: pool, Client: asynqClient, Storage: store},
 		Domains:      &domain.Service{Pool: pool, Identity: sender.NewIdentity(cfg)},
 		Webhooks:     &webhook.Service{Pool: pool, Client: asynqClient},
+		Events:       &events.Processor{Pool: pool, Redis: rdb},
 		Suppressions: &suppression.Service{Pool: pool},
 		Audience:     &audience.Service{Pool: pool},
 		Templates:    &template.Service{Pool: pool},

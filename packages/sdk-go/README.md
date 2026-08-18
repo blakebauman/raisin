@@ -22,3 +22,24 @@ Webhook verification:
 ```go
 ok := raisin.VerifyWebhookSignature(secret, header, body, 0)
 ```
+
+Live event stream (SSE) — cancel the context to disconnect; pass `LastEventID` on reconnect:
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+ch, errs, err := client.Events.Stream(ctx, &raisin.StreamOpts{
+	Types: []string{"email.opened", "email.clicked", "email.delivered"},
+})
+if err != nil { log.Fatal(err) }
+for {
+	select {
+	case ev, ok := <-ch:
+		if !ok { return }
+		fmt.Println(ev.Type, string(ev.Data))
+	case err := <-errs:
+		if err != nil { log.Println(err) }
+		return
+	}
+}
+```
