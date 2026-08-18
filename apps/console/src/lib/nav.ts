@@ -16,6 +16,7 @@ import {
   Shield,
   Tags,
   Activity,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -62,6 +63,7 @@ export const navGroups: { label?: string; items: NavItem[] }[] = [
   {
     label: "Account",
     items: [
+      { href: "/docs", label: "API Docs", icon: BookOpen, hint: "OpenAPI reference" },
       { href: "/logs", label: "API Logs", icon: ScrollText },
       { href: "/settings", label: "Settings", icon: Settings },
     ],

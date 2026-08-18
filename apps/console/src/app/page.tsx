@@ -6,11 +6,6 @@ import { useRouter } from "next/navigation";
 import { ProductPreview } from "@/components/product-preview";
 import { WorkspaceMark } from "@/components/ui";
 
-const API_HEALTH =
-  typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL
-    ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")}/health`
-    : "https://api.raisin.run/health";
-
 export default function LandingPage() {
   const router = useRouter();
 
@@ -37,14 +32,14 @@ export default function LandingPage() {
           <span className="text-[13px] font-medium text-zinc-50">Raisin</span>
         </Link>
         <nav className="flex items-center gap-5 text-[13px]">
-          <a href={API_HEALTH} className="hidden text-[var(--muted)] hover:text-zinc-200 sm:inline">
-            API
-          </a>
+          <Link href="/docs" className="hidden text-[var(--muted)] hover:text-zinc-200 sm:inline">
+            Docs
+          </Link>
           <a
             href="https://github.com/blakebauman/raisin"
             className="hidden text-[var(--muted)] hover:text-zinc-200 sm:inline"
           >
-            Docs
+            GitHub
           </a>
           <Link href="/login" className="text-[var(--muted)] hover:text-zinc-200">
             Log in
@@ -74,12 +69,12 @@ export default function LandingPage() {
             >
               Open console
             </Link>
-            <a
-              href="https://github.com/blakebauman/raisin"
+            <Link
+              href="/docs"
               className="inline-flex h-8 items-center rounded-full border border-[var(--border)] px-4 text-[13px] text-zinc-200 transition hover:bg-white/[0.04]"
             >
-              Docs & SDKs
-            </a>
+              API docs
+            </Link>
           </div>
         </section>
 
@@ -118,9 +113,14 @@ export default function LandingPage() {
 
       <footer className="mx-auto flex w-full max-w-6xl items-center justify-between border-t border-[var(--border)] px-5 py-6 text-[12px] text-[var(--muted-2)]">
         <span>Raisin</span>
-        <a href="https://github.com/blakebauman/raisin" className="hover:text-zinc-300">
-          GitHub
-        </a>
+        <div className="flex items-center gap-4">
+          <Link href="/docs" className="hover:text-zinc-300">
+            API docs
+          </Link>
+          <a href="https://github.com/blakebauman/raisin" className="hover:text-zinc-300">
+            GitHub
+          </a>
+        </div>
       </footer>
 
       <style>{`

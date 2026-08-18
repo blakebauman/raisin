@@ -12,6 +12,10 @@ redis-cli -h 127.0.0.1 -p 6379 FLUSHDB >/dev/null 2>&1 || true
 echo "== health =="
 curl -sf "$API/health" | grep -q ok
 
+echo "== openapi docs =="
+curl -sf "$API/openapi.yaml" | grep -q "Raisin Email API"
+curl -sf "$API/docs" | grep -q "@scalar/api-reference"
+
 echo "== send email =="
 RESP=$(curl -sf -D /tmp/raisin-smoke-headers -X POST "$API/emails" \
   -H "Authorization: Bearer $KEY" \

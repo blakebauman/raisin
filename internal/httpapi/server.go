@@ -73,6 +73,9 @@ func (s *Server) Router() http.Handler {
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		apierr.WriteJSON(w, 200, map[string]string{"status": "ok"})
 	})
+	r.Get("/openapi.yaml", s.serveOpenAPIYAML)
+	r.Get("/docs", s.serveAPIDocs)
+	r.Get("/docs/", s.serveAPIDocs)
 
 	r.Post("/console/token", s.consoleToken)
 	r.Post("/console/provision", s.consoleProvision)

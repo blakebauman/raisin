@@ -6,12 +6,32 @@ info:
     Developer email API for raisin.run — clean REST surface powered by Amazon SES.
     Auth: `Authorization: Bearer ra_…` and a `User-Agent` header.
     Authenticated responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`.
+    Interactive docs: `/docs` · raw spec: `/openapi.yaml`
 servers:
   - url: https://api.raisin.run
   - url: http://localhost:18080
 security:
   - bearerAuth: []
 paths:
+  /openapi.yaml:
+    get:
+      summary: OpenAPI 3 specification (YAML)
+      operationId: getOpenAPISpec
+      security: []
+      responses:
+        '200':
+          description: OpenAPI document
+          content:
+            application/yaml:
+              schema: { type: string }
+  /docs:
+    get:
+      summary: Interactive API reference (Scalar)
+      operationId: getAPIDocs
+      security: []
+      responses:
+        '200':
+          description: HTML documentation UI
   /emails:
     post:
       summary: Send an email
