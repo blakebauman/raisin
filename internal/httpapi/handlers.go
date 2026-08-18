@@ -831,6 +831,55 @@ func (s *Server) deleteTopic(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteJSON(w, 200, map[string]bool{"deleted": true})
 }
 
+func (s *Server) listContactTopics(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
+	cid, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	list, err := s.Audience.ListContactTopics(r.Context(), team.ID, cid)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, 200, map[string]any{"data": list})
+}
+
+func (s *Server) setContactTopic(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
+	cid, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	topicID, err := uuid.Parse(chi.URLParam(r, "topicId"))
+	if err != nil {
+		apierr.Write(w, apierr.Validation("invalid topic id"))
+		return
+	}
+	var body struct {
+		Subscribed *bool `json:"subscribed"`
+	}
+	if err := decode(r, &body); err != nil {
+		apierr.Write(w, apierr.Validation("invalid json"))
+		return
+	}
+	subscribed := true
+	if body.Subscribed != nil {
+		subscribed = *body.Subscribed
+	}
+	if err := s.Audience.SetTopicSubscription(r.Context(), team.ID, cid, topicID, subscribed); err != nil {
+		writeErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, 200, map[string]any{"ok": true, "subscribed": subscribed})
+}
+
 func (s *Server) createTemplate(w http.ResponseWriter, r *http.Request) {
 	team := teamOrWrite(w, r)
 	if team == nil {

@@ -30,6 +30,7 @@ class Raisin:
         self.webhooks = Webhooks(self)
         self.api_keys = APIKeys(self)
         self.contacts = Contacts(self)
+        self.topics = Topics(self)
         self.templates = Templates(self)
         self.broadcasts = Broadcasts(self)
         self.suppressions = Suppressions(self)
@@ -198,6 +199,33 @@ class Contacts:
 
     def list(self) -> dict:
         return self._c.request("GET", "/contacts")
+
+    def list_topics(self, contact_id: str) -> dict:
+        return self._c.request("GET", f"/contacts/{contact_id}/topics")
+
+    def set_topic(self, contact_id: str, topic_id: str, subscribed: bool = True) -> dict:
+        return self._c.request(
+            "PUT",
+            f"/contacts/{contact_id}/topics/{topic_id}",
+            {"subscribed": subscribed},
+        )
+
+
+class Topics:
+    def __init__(self, client: Raisin):
+        self._c = client
+
+    def create(self, **body: Any) -> dict:
+        return self._c.request("POST", "/topics", body)
+
+    def list(self) -> dict:
+        return self._c.request("GET", "/topics")
+
+    def get(self, id: str) -> dict:
+        return self._c.request("GET", f"/topics/{id}")
+
+    def remove(self, id: str) -> dict:
+        return self._c.request("DELETE", f"/topics/{id}")
 
 
 class Templates:

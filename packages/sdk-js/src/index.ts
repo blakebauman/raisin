@@ -58,6 +58,7 @@ export class Raisin {
   readonly apiKeys: ApiKeys;
   readonly webhooks: Webhooks;
   readonly contacts: Contacts;
+  readonly topics: Topics;
   readonly templates: Templates;
   readonly broadcasts: Broadcasts;
   readonly suppressions: Suppressions;
@@ -78,6 +79,7 @@ export class Raisin {
     this.apiKeys = new ApiKeys(this);
     this.webhooks = new Webhooks(this);
     this.contacts = new Contacts(this);
+    this.topics = new Topics(this);
     this.templates = new Templates(this);
     this.broadcasts = new Broadcasts(this);
     this.suppressions = new Suppressions(this);
@@ -354,6 +356,34 @@ class Contacts {
   remove(id: string) {
     return this.client.request("DELETE", `/contacts/${id}`);
   }
+  listTopics(contactId: string) {
+    return this.client.request("GET", `/contacts/${contactId}/topics`);
+  }
+  setTopic(contactId: string, topicId: string, subscribed = true) {
+    return this.client.request("PUT", `/contacts/${contactId}/topics/${topicId}`, {
+      subscribed,
+    });
+  }
+}
+
+class Topics {
+  constructor(private client: Raisin) {}
+  create(body: {
+    name: string;
+    description?: string;
+    default_subscription?: "opt_in" | "opt_out";
+  }) {
+    return this.client.request("POST", "/topics", body);
+  }
+  list() {
+    return this.client.request("GET", "/topics");
+  }
+  get(id: string) {
+    return this.client.request("GET", `/topics/${id}`);
+  }
+  remove(id: string) {
+    return this.client.request("DELETE", `/topics/${id}`);
+  }
 }
 
 class Templates {
@@ -376,6 +406,7 @@ class Broadcasts {
     subject: string;
     html?: string;
     segment_id?: string;
+    topic_id?: string;
     name?: string;
   }) {
     return this.client.request("POST", "/broadcasts", body);

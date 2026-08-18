@@ -259,6 +259,118 @@ func (s *Service) DeleteTopic(ctx context.Context, teamID, id uuid.UUID) error {
 	return err
 }
 
+type TopicSubscription struct {
+	TopicID              uuid.UUID `json:"topic_id"`
+	Name                 string    `json:"name"`
+	DefaultSubscription  string    `json:"default_subscription"`
+	Subscribed           bool      `json:"subscribed"`
+	Explicit             bool      `json:"explicit"`
+}
+
+// SetTopicSubscription upserts an explicit subscription row. Contact and topic must belong to the team.
+func (s *Service) SetTopicSubscription(ctx context.Context, teamID, contactID, topicID uuid.UUID, subscribed bool) error {
+	var ok bool
+	err := s.Pool.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM contacts c
+			JOIN topics t ON t.team_id = c.team_id
+			WHERE c.id = $1 AND t.id = $2 AND c.team_id = $3
+		)
+	`, contactID, topicID, teamID).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return apierr.NotFound
+	}
+	_, err = s.Pool.Exec(ctx, `
+		INSERT INTO topic_subscriptions (topic_id, contact_id, subscribed, updated_at)
+		VALUES ($1,$2,$3,now())
+		ON CONFLICT (topic_id, contact_id) DO UPDATE
+		SET subscribed = EXCLUDED.subscribed, updated_at = now()
+	`, topicID, contactID, subscribed)
+	return err
+}
+
+// ListContactTopics returns every team topic with effective subscription status for the contact.
+func (s *Service) ListContactTopics(ctx context.Context, teamID, contactID uuid.UUID) ([]*TopicSubscription, error) {
+	var exists bool
+	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM contacts WHERE id = $1 AND team_id = $2)`, contactID, teamID).Scan(&exists)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, apierr.NotFound
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT t.id, t.name, t.default_subscription,
+		       COALESCE(ts.subscribed, t.default_subscription = 'opt_out') AS subscribed,
+		       (ts.contact_id IS NOT NULL) AS explicit
+		FROM topics t
+		LEFT JOIN topic_subscriptions ts ON ts.topic_id = t.id AND ts.contact_id = $1
+		WHERE t.team_id = $2
+		ORDER BY t.created_at DESC
+	`, contactID, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*TopicSubscription
+	for rows.Next() {
+		var ts TopicSubscription
+		if err := rows.Scan(&ts.TopicID, &ts.Name, &ts.DefaultSubscription, &ts.Subscribed, &ts.Explicit); err != nil {
+			return nil, err
+		}
+		out = append(out, &ts)
+	}
+	return out, nil
+}
+
+// TopicRecipientEmails returns contact emails eligible for a topic broadcast (optional segment filter).
+func (s *Service) TopicRecipientEmails(ctx context.Context, teamID, topicID uuid.UUID, segmentID *uuid.UUID) ([]string, error) {
+	var ok bool
+	err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM topics WHERE id = $1 AND team_id = $2)`, topicID, teamID).Scan(&ok)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, apierr.NotFound
+	}
+
+	q := `
+		SELECT c.email
+		FROM contacts c
+		CROSS JOIN topics t
+		LEFT JOIN topic_subscriptions ts ON ts.topic_id = t.id AND ts.contact_id = c.id
+		WHERE t.id = $1 AND c.team_id = $2 AND t.team_id = $2
+		  AND c.unsubscribed = FALSE
+		  AND COALESCE(ts.subscribed, t.default_subscription = 'opt_out') = TRUE
+	`
+	args := []any{topicID, teamID}
+	if segmentID != nil {
+		q += `
+		  AND EXISTS (
+		    SELECT 1 FROM segment_members sm
+		    WHERE sm.contact_id = c.id AND sm.segment_id = $3
+		  )`
+		args = append(args, *segmentID)
+	}
+	rows, err := s.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var emails []string
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			return nil, err
+		}
+		emails = append(emails, e)
+	}
+	return emails, nil
+}
+
 func (s *Service) CreateProperty(ctx context.Context, teamID uuid.UUID, key, typ string) (*ContactProperty, error) {
 	if key == "" {
 		return nil, apierr.Validation("key is required")

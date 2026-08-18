@@ -470,6 +470,47 @@ paths:
       responses:
         '200':
           description: OK
+  /topics/{id}:
+    get:
+      summary: Get topic
+      operationId: getTopic
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete topic
+      operationId: deleteTopic
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /contacts/{id}/topics:
+    get:
+      summary: List topic subscriptions for a contact
+      operationId: listContactTopics
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /contacts/{id}/topics/{topicId}:
+    put:
+      summary: Set contact subscription to a topic
+      operationId: setContactTopic
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - name: topicId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
   /templates:
     post:
       summary: Create template

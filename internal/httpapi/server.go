@@ -147,6 +147,8 @@ func (s *Server) Router() http.Handler {
 			r.Delete("/{id}", s.deleteContact)
 			r.Post("/{id}/segments/{segmentId}", s.addContactSegment)
 			r.Delete("/{id}/segments/{segmentId}", s.removeContactSegment)
+			r.Get("/{id}/topics", s.listContactTopics)
+			r.Put("/{id}/topics/{topicId}", s.setContactTopic)
 		})
 
 		r.Route("/contact-properties", func(r chi.Router) {

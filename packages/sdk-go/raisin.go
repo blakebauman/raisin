@@ -27,6 +27,7 @@ type Client struct {
 	Webhooks     *WebhooksService
 	APIKeys      *APIKeysService
 	Contacts     *ContactsService
+	Topics       *TopicsService
 	Templates    *TemplatesService
 	Broadcasts   *BroadcastsService
 	Suppressions *SuppressionsService
@@ -46,6 +47,7 @@ func NewClient(apiKey string) *Client {
 	c.Webhooks = &WebhooksService{c: c}
 	c.APIKeys = &APIKeysService{c: c}
 	c.Contacts = &ContactsService{c: c}
+	c.Topics = &TopicsService{c: c}
 	c.Templates = &TemplatesService{c: c}
 	c.Broadcasts = &BroadcastsService{c: c}
 	c.Suppressions = &SuppressionsService{c: c}
@@ -357,6 +359,48 @@ func (s *ContactsService) Create(ctx context.Context, email string, opts *Contac
 func (s *ContactsService) List(ctx context.Context) (map[string]any, error) {
 	var out map[string]any
 	if err := s.c.do(ctx, http.MethodGet, "/contacts", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *ContactsService) ListTopics(ctx context.Context, contactID string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/contacts/"+contactID+"/topics", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *ContactsService) SetTopic(ctx context.Context, contactID, topicID string, subscribed bool) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPut, "/contacts/"+contactID+"/topics/"+topicID, map[string]any{"subscribed": subscribed}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type TopicsService struct{ c *Client }
+
+func (s *TopicsService) Create(ctx context.Context, body map[string]any) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/topics", body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *TopicsService) List(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/topics", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *TopicsService) Delete(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodDelete, "/topics/"+id, nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

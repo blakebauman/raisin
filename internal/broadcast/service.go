@@ -21,6 +21,7 @@ type Service struct {
 type Broadcast struct {
 	ID          uuid.UUID  `json:"id"`
 	SegmentID   *uuid.UUID `json:"segment_id"`
+	TopicID     *uuid.UUID `json:"topic_id"`
 	Name        *string    `json:"name"`
 	From        string     `json:"from"`
 	Subject     string     `json:"subject"`
@@ -35,6 +36,7 @@ type Broadcast struct {
 
 type CreateRequest struct {
 	SegmentID  string `json:"segment_id"`
+	TopicID    string `json:"topic_id"`
 	Name       string `json:"name"`
 	From       string `json:"from"`
 	Subject    string `json:"subject"`
@@ -63,15 +65,37 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateReques
 	if err != nil {
 		return nil, err
 	}
+	topicID, err := parseOptionalUUID(req.TopicID)
+	if err != nil {
+		return nil, err
+	}
+	if topicID != nil {
+		var ok bool
+		if err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM topics WHERE id = $1 AND team_id = $2)`, *topicID, teamID).Scan(&ok); err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, apierr.Validation("topic not found")
+		}
+	}
+	if segID != nil {
+		var ok bool
+		if err := s.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM segments WHERE id = $1 AND team_id = $2)`, *segID, teamID).Scan(&ok); err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, apierr.Validation("segment not found")
+		}
+	}
 	tplID, err := parseOptionalUUID(req.TemplateID)
 	if err != nil {
 		return nil, err
 	}
 	var id uuid.UUID
 	err = s.Pool.QueryRow(ctx, `
-		INSERT INTO broadcasts (team_id, segment_id, name, from_addr, subject, html, text, template_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id
-	`, teamID, segID, nullStr(req.Name), req.From, req.Subject, nullStr(req.HTML), nullStr(req.Text), tplID).Scan(&id)
+		INSERT INTO broadcasts (team_id, segment_id, topic_id, name, from_addr, subject, html, text, template_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id
+	`, teamID, segID, topicID, nullStr(req.Name), req.From, req.Subject, nullStr(req.HTML), nullStr(req.Text), tplID).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
@@ -81,9 +105,9 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateReques
 func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*Broadcast, error) {
 	var b Broadcast
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, segment_id, name, from_addr, subject, html, text, template_id, status, scheduled_at, sent_at, created_at
+		SELECT id, segment_id, topic_id, name, from_addr, subject, html, text, template_id, status, scheduled_at, sent_at, created_at
 		FROM broadcasts WHERE id = $1 AND team_id = $2
-	`, id, teamID).Scan(&b.ID, &b.SegmentID, &b.Name, &b.From, &b.Subject, &b.HTML, &b.Text, &b.TemplateID, &b.Status, &b.ScheduledAt, &b.SentAt, &b.CreatedAt)
+	`, id, teamID).Scan(&b.ID, &b.SegmentID, &b.TopicID, &b.Name, &b.From, &b.Subject, &b.HTML, &b.Text, &b.TemplateID, &b.Status, &b.ScheduledAt, &b.SentAt, &b.CreatedAt)
 	if err == pgx.ErrNoRows {
 		return nil, apierr.NotFound
 	}
@@ -92,7 +116,7 @@ func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*Broadcast, er
 
 func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*Broadcast, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, segment_id, name, from_addr, subject, html, text, template_id, status, scheduled_at, sent_at, created_at
+		SELECT id, segment_id, topic_id, name, from_addr, subject, html, text, template_id, status, scheduled_at, sent_at, created_at
 		FROM broadcasts WHERE team_id = $1 ORDER BY created_at DESC
 	`, teamID)
 	if err != nil {
@@ -102,7 +126,7 @@ func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*Broadcast, err
 	var out []*Broadcast
 	for rows.Next() {
 		var b Broadcast
-		if err := rows.Scan(&b.ID, &b.SegmentID, &b.Name, &b.From, &b.Subject, &b.HTML, &b.Text, &b.TemplateID, &b.Status, &b.ScheduledAt, &b.SentAt, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.SegmentID, &b.TopicID, &b.Name, &b.From, &b.Subject, &b.HTML, &b.Text, &b.TemplateID, &b.Status, &b.ScheduledAt, &b.SentAt, &b.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, &b)

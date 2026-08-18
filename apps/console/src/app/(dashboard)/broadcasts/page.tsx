@@ -9,28 +9,34 @@ type Broadcast = {
   status: string;
   name?: string | null;
   segment_id?: string | null;
+  topic_id?: string | null;
 };
 
 type Segment = { id: string; name: string };
+type Topic = { id: string; name: string };
 
 export default function BroadcastsPage() {
   const [list, setList] = useState<Broadcast[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
   const [from, setFrom] = useState("Acme <hello@acme.test>");
   const [subject, setSubject] = useState("Product update");
   const [html, setHtml] = useState("<p>Hello from Raisin.</p>");
   const [name, setName] = useState("");
   const [segmentId, setSegmentId] = useState("");
+  const [topicId, setTopicId] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   async function load() {
-    const [b, s] = await Promise.all([
+    const [b, s, t] = await Promise.all([
       apiFetch<{ data: Broadcast[] }>("/broadcasts"),
       apiFetch<{ data: Segment[] }>("/segments"),
+      apiFetch<{ data: Topic[] }>("/topics"),
     ]);
     setList(b.data ?? []);
     setSegments(s.data ?? []);
+    setTopics(t.data ?? []);
   }
 
   useEffect(() => {
@@ -49,6 +55,7 @@ export default function BroadcastsPage() {
           subject,
           html,
           segment_id: segmentId || undefined,
+          topic_id: topicId || undefined,
         }),
       });
       setMsg("Draft created");
@@ -136,6 +143,18 @@ export default function BroadcastsPage() {
             </option>
           ))}
         </select>
+        <select
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+          value={topicId}
+          onChange={(e) => setTopicId(e.target.value)}
+        >
+          <option value="">No topic filter</option>
+          {topics.map((t) => (
+            <option key={t.id} value={t.id}>
+              Topic: {t.name}
+            </option>
+          ))}
+        </select>
         <textarea
           className="min-h-24 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs"
           value={html}
@@ -158,7 +177,8 @@ export default function BroadcastsPage() {
               <div className="text-xs text-zinc-500 mt-0.5">
                 {b.status}
                 {b.name ? ` · ${b.name}` : ""}
-                {b.segment_id ? " · segment" : " · all contacts"}
+                {b.topic_id ? " · topic" : ""}
+                {b.segment_id ? " · segment" : b.topic_id ? "" : " · all contacts"}
               </div>
             </div>
             <div className="flex gap-2 shrink-0">

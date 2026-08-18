@@ -33,6 +33,11 @@ if [[ "$count" == "0" ]]; then
     [[ "$has_ba" == "1" ]] && stamp "002_better_auth.sql"
     has_auto="$(psql_q -tAc "SELECT CASE WHEN to_regclass('public.automations') IS NULL THEN 0 ELSE 1 END" | tr -d '[:space:]')"
     [[ "$has_auto" == "1" ]] && stamp "003_platform_extras.sql"
+    has_topic_col="$(psql_q -tAc "SELECT CASE WHEN EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='broadcasts' AND column_name='topic_id'
+    ) THEN 1 ELSE 0 END" | tr -d '[:space:]')"
+    [[ "$has_topic_col" == "1" ]] && stamp "004_topic_broadcasts.sql"
   fi
 fi
 

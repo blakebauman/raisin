@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,15 +74,16 @@ func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
 	var domainID *uuid.UUID
 	var openTrack, clickTrack bool
 	var templateID *uuid.UUID
+	var tagsJSON []byte
 	err = h.Pool.QueryRow(ctx, `
 		SELECT e.status, e.from_addr, e.to_addrs, e.cc_addrs, e.bcc_addrs, e.reply_to,
-		       e.subject, e.html, e.text, e.domain_id, e.template_id,
+		       e.subject, e.html, e.text, e.domain_id, e.template_id, e.tags,
 		       COALESCE(d.open_tracking, true), COALESCE(d.click_tracking, true)
 		FROM emails e
 		LEFT JOIN domains d ON d.id = e.domain_id
 		WHERE e.id = $1 AND e.team_id = $2
 	`, emailID, teamID).Scan(
-		&status, &from, &to, &cc, &bcc, &replyTo, &subject, &html, &text, &domainID, &templateID, &openTrack, &clickTrack,
+		&status, &from, &to, &cc, &bcc, &replyTo, &subject, &html, &text, &domainID, &templateID, &tagsJSON, &openTrack, &clickTrack,
 	)
 	if err != nil {
 		return err
@@ -111,8 +113,17 @@ func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
 	}
 
 	htmlBody = tracking.Inject(htmlBody, emailID, h.Cfg.TrackingBaseURL, openTrack, clickTrack)
+	unsubURL := fmt.Sprintf("%s/unsubscribe/%s", h.Cfg.TrackingBaseURL, emailID.String())
+	if len(tagsJSON) > 0 {
+		var tags map[string]any
+		if json.Unmarshal(tagsJSON, &tags) == nil {
+			if tid, ok := tags["topic_id"].(string); ok && tid != "" {
+				unsubURL = fmt.Sprintf("%s?topic=%s", unsubURL, url.QueryEscape(tid))
+			}
+		}
+	}
 	headers := map[string]string{
-		"List-Unsubscribe":     fmt.Sprintf("<%s/unsubscribe/%s>", h.Cfg.TrackingBaseURL, emailID.String()),
+		"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubURL),
 		"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
 	}
 
@@ -214,12 +225,12 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 	bid, _ := uuid.Parse(p.BroadcastID)
 	tid, _ := uuid.Parse(p.TeamID)
 
-	var segmentID *uuid.UUID
+	var segmentID, topicID *uuid.UUID
 	var from, subject string
 	var html, text *string
 	err := h.Pool.QueryRow(ctx, `
-		SELECT segment_id, from_addr, subject, html, text FROM broadcasts WHERE id = $1 AND team_id = $2
-	`, bid, tid).Scan(&segmentID, &from, &subject, &html, &text)
+		SELECT segment_id, topic_id, from_addr, subject, html, text FROM broadcasts WHERE id = $1 AND team_id = $2
+	`, bid, tid).Scan(&segmentID, &topicID, &from, &subject, &html, &text)
 	if err != nil {
 		return err
 	}
@@ -233,10 +244,13 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 		textBody = *text
 	}
 
-	var contacts []struct {
-		Email string
-	}
-	if segmentID != nil {
+	var emails []string
+	if topicID != nil {
+		emails, err = h.topicRecipientEmails(ctx, tid, *topicID, segmentID)
+		if err != nil {
+			return err
+		}
+	} else if segmentID != nil {
 		rows, err := h.Pool.Query(ctx, `
 			SELECT c.email FROM contacts c
 			JOIN segment_members sm ON sm.contact_id = c.id
@@ -251,10 +265,9 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 			if err := rows.Scan(&e); err != nil {
 				return err
 			}
-			contacts = append(contacts, struct{ Email string }{e})
+			emails = append(emails, e)
 		}
 	} else {
-		// No segment: send to all subscribed contacts on the team
 		rows, err := h.Pool.Query(ctx, `
 			SELECT email FROM contacts
 			WHERE team_id = $1 AND unsubscribed = FALSE
@@ -268,7 +281,7 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 			if err := rows.Scan(&e); err != nil {
 				return err
 			}
-			contacts = append(contacts, struct{ Email string }{e})
+			emails = append(emails, e)
 		}
 	}
 
@@ -277,16 +290,55 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 	if err != nil {
 		return err
 	}
-	for _, c := range contacts {
+	tags := map[string]string{}
+	if topicID != nil {
+		tags["topic_id"] = topicID.String()
+	}
+	for _, addr := range emails {
 		_, err := emailSvc.Send(ctx, team, email.SendRequest{
-			From: from, To: []string{c.Email}, Subject: subject, HTML: htmlBody, Text: textBody,
+			From: from, To: []string{addr}, Subject: subject, HTML: htmlBody, Text: textBody, Tags: tags,
 		}, "")
 		if err != nil {
-			log.Printf("broadcast send to %s: %v", c.Email, err)
+			log.Printf("broadcast send to %s: %v", addr, err)
 		}
 	}
 	_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1`, bid)
 	return nil
+}
+
+func (h *Handlers) topicRecipientEmails(ctx context.Context, teamID, topicID uuid.UUID, segmentID *uuid.UUID) ([]string, error) {
+	q := `
+		SELECT c.email
+		FROM contacts c
+		CROSS JOIN topics t
+		LEFT JOIN topic_subscriptions ts ON ts.topic_id = t.id AND ts.contact_id = c.id
+		WHERE t.id = $1 AND c.team_id = $2 AND t.team_id = $2
+		  AND c.unsubscribed = FALSE
+		  AND COALESCE(ts.subscribed, t.default_subscription = 'opt_out') = TRUE
+	`
+	args := []any{topicID, teamID}
+	if segmentID != nil {
+		q += `
+		  AND EXISTS (
+		    SELECT 1 FROM segment_members sm
+		    WHERE sm.contact_id = c.id AND sm.segment_id = $3
+		  )`
+		args = append(args, *segmentID)
+	}
+	rows, err := h.Pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 func (h *Handlers) HandleDomainVerify(ctx context.Context, t *asynq.Task) error {
@@ -389,6 +441,10 @@ func (h *Handlers) handleClick(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Path[len("/unsubscribe/"):]
+	if i := strings.IndexByte(idStr, '?'); i >= 0 {
+		idStr = idStr[:i]
+	}
+	idStr = strings.Trim(idStr, "/")
 	emailID, err := uuid.Parse(idStr)
 	if err != nil {
 		http.NotFound(w, r)
@@ -397,14 +453,40 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	var teamID uuid.UUID
 	var toAddrs []string
 	_ = h.Pool.QueryRow(r.Context(), `SELECT team_id, to_addrs FROM emails WHERE id = $1`, emailID).Scan(&teamID, &toAddrs)
+
+	topicParam := r.URL.Query().Get("topic")
+	var topicID uuid.UUID
+	if topicParam != "" {
+		topicID, err = uuid.Parse(topicParam)
+		if err != nil {
+			http.Error(w, "invalid topic", http.StatusBadRequest)
+			return
+		}
+	}
+
 	for _, a := range toAddrs {
-		_, _ = h.Pool.Exec(r.Context(), `
-			UPDATE contacts SET unsubscribed = TRUE, updated_at = now()
-			WHERE team_id = $1 AND email = lower($2)
-		`, teamID, a)
+		if topicID != uuid.Nil {
+			_, _ = h.Pool.Exec(r.Context(), `
+				INSERT INTO topic_subscriptions (topic_id, contact_id, subscribed, updated_at)
+				SELECT $1, c.id, FALSE, now()
+				FROM contacts c
+				WHERE c.team_id = $2 AND c.email = lower($3)
+				ON CONFLICT (topic_id, contact_id) DO UPDATE
+				SET subscribed = FALSE, updated_at = now()
+			`, topicID, teamID, a)
+		} else {
+			_, _ = h.Pool.Exec(r.Context(), `
+				UPDATE contacts SET unsubscribed = TRUE, updated_at = now()
+				WHERE team_id = $1 AND email = lower($2)
+			`, teamID, a)
+		}
 	}
 	w.Header().Set("Content-Type", "text/html")
-	_, _ = w.Write([]byte(`<html><body><h1>Unsubscribed</h1><p>You have been unsubscribed.</p></body></html>`))
+	msg := "You have been unsubscribed."
+	if topicID != uuid.Nil {
+		msg = "You have been unsubscribed from this topic."
+	}
+	_, _ = w.Write([]byte(`<html><body><h1>Unsubscribed</h1><p>` + msg + `</p></body></html>`))
 }
 
 func (h *Handlers) handleTestEvent(w http.ResponseWriter, r *http.Request) {

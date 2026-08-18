@@ -98,6 +98,42 @@ TPIC=$(curl -sf -X POST "$API/topics" \
 echo "$TPIC" | grep -q "smoke-$STAMP"
 TPIC_ID=$(echo "$TPIC" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/topics" | grep -q "smoke-$STAMP"
+curl -sf -X PUT "$API/contacts/$CT_ID/topics/$TPIC_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{"subscribed":true}' | grep -q '"subscribed":true'
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts/$CT_ID/topics" | grep -q "$TPIC_ID"
+BC_TOPIC=$(curl -sf -X POST "$API/broadcasts" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"from\":\"Acme <hello@acme.test>\",\"subject\":\"Topic smoke\",\"html\":\"<p>t</p>\",\"topic_id\":\"$TPIC_ID\",\"name\":\"topic-$STAMP\"}")
+BC_TOPIC_ID=$(echo "$BC_TOPIC" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo "$BC_TOPIC" | grep -q "$TPIC_ID"
+curl -sf -X POST "$API/broadcasts/$BC_TOPIC_ID/send" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{}' | grep -q '"status"'
+# Topic List-Unsubscribe should opt out of topic only (not global)
+for i in $(seq 1 20); do
+  TOPIC_MAIL=$(curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails?limit=20" | python3 -c "
+import sys,json
+data=json.load(sys.stdin).get('data') or []
+for e in data:
+  tags=e.get('tags') or {}
+  if tags.get('topic_id')=='$TPIC_ID':
+    print(e['id']); break
+" || true)
+  if [[ -n "${TOPIC_MAIL:-}" ]]; then
+    break
+  fi
+  sleep 0.3
+done
+if [[ -n "${TOPIC_MAIL:-}" ]]; then
+  WORKER="${WORKER_URL:-http://localhost:18081}"
+  curl -sf "$WORKER/unsubscribe/$TOPIC_MAIL?topic=$TPIC_ID" >/dev/null
+  curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts/$CT_ID/topics" \
+    | python3 -c "import sys,json; d=json.load(sys.stdin)['data'];
+assert any(t['topic_id']=='$TPIC_ID' and t['subscribed'] is False for t in d), d"
+  curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts/$CT_ID" \
+    | python3 -c "import sys,json; assert json.load(sys.stdin).get('unsubscribed') is False"
+fi
 curl -sf -X DELETE "$API/topics/$TPIC_ID" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" \
   | grep -q '"deleted":true'
