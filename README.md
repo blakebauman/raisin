@@ -145,6 +145,10 @@ from raisin import Raisin
 Raisin("ra_…").emails.send(from_="Acme <hi@acme.com>", to="u@x.com", subject="Hi", html="<p>Hi</p>")
 ```
 
+## Architecture
+
+Hosts, processes, current AWS deploy, and data flows: [`docs/architecture.md`](./docs/architecture.md). Start-small and scale-out: [`docs/scaling.md`](./docs/scaling.md).
+
 ## Deploy (AWS)
 
 ```bash
