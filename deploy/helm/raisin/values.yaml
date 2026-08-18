@@ -99,6 +99,9 @@ config:
   WORKER_ADDR: ":8081"
   SMTP_ADDR: ":2525"
   DEFAULT_MONTHLY_QUOTA: "100000"
+  STRIPE_PRICE_PRO: ""
+  STRIPE_PRICE_PRO_ANNUAL: ""
+  STRIPE_PRO_QUOTA: "100000"
 
 # Sensitive values → Secret raisin-secrets (override via --set / sealed-secrets / ExternalSecrets)
 secrets:

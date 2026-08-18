@@ -4,18 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/blakebauman/raisin/internal/db"
 	"github.com/stripe/stripe-go/v81"
+	portalsession "github.com/stripe/stripe-go/v81/billingportal/session"
 	"github.com/stripe/stripe-go/v81/checkout/session"
 	"github.com/stripe/stripe-go/v81/customer"
 )
 
 type Service struct {
-	Pool      *db.Pool
-	SecretKey string
+	Pool            *db.Pool
+	SecretKey       string
+	PricePro        string // monthly Price ID (price_…)
+	PriceProAnnual  string // optional annual Price ID
+	ProMonthlyQuota int    // quota granted on active Pro
 }
 
 type Usage struct {
@@ -25,6 +30,50 @@ type Usage struct {
 	Quota       int       `json:"quota"`
 	Remaining   int       `json:"remaining"`
 	Status      string    `json:"billing_status"`
+}
+
+type PlanInfo struct {
+	Configured     bool   `json:"configured"`
+	Name           string `json:"name"`
+	Interval       string `json:"interval"` // month | year
+	HasAnnual      bool   `json:"has_annual"`
+	MonthlyQuota   int    `json:"monthly_quota"`
+	CheckoutReady  bool   `json:"checkout_ready"`
+	PortalReady    bool   `json:"portal_ready"`
+}
+
+func (s *Service) Plans() PlanInfo {
+	ready := s.SecretKey != "" && s.PricePro != ""
+	quota := s.ProMonthlyQuota
+	if quota <= 0 {
+		quota = 100000
+	}
+	return PlanInfo{
+		Configured:    ready,
+		Name:          "Raisin Pro",
+		Interval:      "month",
+		HasAnnual:     s.PriceProAnnual != "",
+		MonthlyQuota:  quota,
+		CheckoutReady: ready,
+		PortalReady:   s.SecretKey != "",
+	}
+}
+
+func (s *Service) priceIDFor(interval string) (string, error) {
+	interval = strings.ToLower(strings.TrimSpace(interval))
+	if interval == "" || interval == "month" || interval == "monthly" {
+		if s.PricePro == "" {
+			return "", fmt.Errorf("STRIPE_PRICE_PRO is not configured")
+		}
+		return s.PricePro, nil
+	}
+	if interval == "year" || interval == "annual" || interval == "yearly" {
+		if s.PriceProAnnual == "" {
+			return "", fmt.Errorf("STRIPE_PRICE_PRO_ANNUAL is not configured")
+		}
+		return s.PriceProAnnual, nil
+	}
+	return "", fmt.Errorf("interval must be month or year")
 }
 
 func (s *Service) CurrentUsage(ctx context.Context, teamID uuid.UUID, quota int, status string) (*Usage, error) {
@@ -73,7 +122,64 @@ func (s *Service) PauseIfOverQuota(ctx context.Context, teamID uuid.UUID, quota 
 	return nil
 }
 
-func (s *Service) CreateCheckout(ctx context.Context, teamID uuid.UUID, teamName, successURL, cancelURL string) (string, error) {
+func (s *Service) ensureCustomer(ctx context.Context, teamID uuid.UUID, teamName string) (string, error) {
+	var customerID *string
+	_ = s.Pool.QueryRow(ctx, `SELECT stripe_customer_id FROM teams WHERE id = $1`, teamID).Scan(&customerID)
+	if customerID != nil && *customerID != "" {
+		return *customerID, nil
+	}
+	c, err := customer.New(&stripe.CustomerParams{
+		Name: stripe.String(teamName),
+		Metadata: map[string]string{"team_id": teamID.String()},
+	})
+	if err != nil {
+		return "", err
+	}
+	_, _ = s.Pool.Exec(ctx, `UPDATE teams SET stripe_customer_id = $2 WHERE id = $1`, teamID, c.ID)
+	return c.ID, nil
+}
+
+func (s *Service) CreateCheckout(ctx context.Context, teamID uuid.UUID, teamName, successURL, cancelURL, interval string) (string, error) {
+	if s.SecretKey == "" {
+		return "", fmt.Errorf("stripe not configured")
+	}
+	priceID, err := s.priceIDFor(interval)
+	if err != nil {
+		return "", err
+	}
+	stripe.Key = s.SecretKey
+
+	customerID, err := s.ensureCustomer(ctx, teamID, teamName)
+	if err != nil {
+		return "", err
+	}
+
+	params := &stripe.CheckoutSessionParams{
+		Mode:               stripe.String(string(stripe.CheckoutSessionModeSubscription)),
+		Customer:           stripe.String(customerID),
+		ClientReferenceID:  stripe.String(teamID.String()),
+		SuccessURL:         stripe.String(successURL),
+		CancelURL:          stripe.String(cancelURL),
+		AllowPromotionCodes: stripe.Bool(true),
+		LineItems: []*stripe.CheckoutSessionLineItemParams{
+			{
+				Price:    stripe.String(priceID),
+				Quantity: stripe.Int64(1),
+			},
+		},
+		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
+			Metadata: map[string]string{"team_id": teamID.String()},
+		},
+		Metadata: map[string]string{"team_id": teamID.String()},
+	}
+	sess, err := session.New(params)
+	if err != nil {
+		return "", err
+	}
+	return sess.URL, nil
+}
+
+func (s *Service) CreatePortal(ctx context.Context, teamID uuid.UUID, returnURL string) (string, error) {
 	if s.SecretKey == "" {
 		return "", fmt.Errorf("stripe not configured")
 	}
@@ -81,40 +187,12 @@ func (s *Service) CreateCheckout(ctx context.Context, teamID uuid.UUID, teamName
 
 	var customerID *string
 	_ = s.Pool.QueryRow(ctx, `SELECT stripe_customer_id FROM teams WHERE id = $1`, teamID).Scan(&customerID)
-
 	if customerID == nil || *customerID == "" {
-		c, err := customer.New(&stripe.CustomerParams{
-			Name: stripe.String(teamName),
-			Metadata: map[string]string{"team_id": teamID.String()},
-		})
-		if err != nil {
-			return "", err
-		}
-		_, _ = s.Pool.Exec(ctx, `UPDATE teams SET stripe_customer_id = $2 WHERE id = $1`, teamID, c.ID)
-		customerID = &c.ID
+		return "", fmt.Errorf("no Stripe customer for this team; complete checkout first")
 	}
-
-	sess, err := session.New(&stripe.CheckoutSessionParams{
-		Mode:       stripe.String(string(stripe.CheckoutSessionModeSubscription)),
-		Customer:   customerID,
-		SuccessURL: stripe.String(successURL),
-		CancelURL:  stripe.String(cancelURL),
-		LineItems: []*stripe.CheckoutSessionLineItemParams{
-			{
-				PriceData: &stripe.CheckoutSessionLineItemPriceDataParams{
-					Currency: stripe.String("usd"),
-					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
-						Name: stripe.String("Raisin Pro"),
-					},
-					UnitAmount: stripe.Int64(2000),
-					Recurring: &stripe.CheckoutSessionLineItemPriceDataRecurringParams{
-						Interval: stripe.String("month"),
-					},
-				},
-				Quantity: stripe.Int64(1),
-			},
-		},
-		Metadata: map[string]string{"team_id": teamID.String()},
+	sess, err := portalsession.New(&stripe.BillingPortalSessionParams{
+		Customer:  customerID,
+		ReturnURL: stripe.String(returnURL),
 	})
 	if err != nil {
 		return "", err
@@ -122,7 +200,35 @@ func (s *Service) CreateCheckout(ctx context.Context, teamID uuid.UUID, teamName
 	return sess.URL, nil
 }
 
+func (s *Service) proQuota() int {
+	if s.ProMonthlyQuota > 0 {
+		return s.ProMonthlyQuota
+	}
+	return 100000
+}
+
+func (s *Service) MarkStatus(ctx context.Context, teamID uuid.UUID, status, subscriptionID string, setQuota bool) error {
+	if setQuota && status == "active" {
+		_, err := s.Pool.Exec(ctx, `
+			UPDATE teams SET billing_status = $2, stripe_subscription_id = COALESCE(NULLIF($3,''), stripe_subscription_id),
+			       monthly_quota = $4, updated_at = now()
+			WHERE id = $1
+		`, teamID, status, subscriptionID, s.proQuota())
+		return err
+	}
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE teams SET billing_status = $2,
+		       stripe_subscription_id = COALESCE(NULLIF($3,''), stripe_subscription_id),
+		       updated_at = now()
+		WHERE id = $1
+	`, teamID, status, subscriptionID)
+	return err
+}
+
 func (s *Service) MarkActive(ctx context.Context, teamID uuid.UUID, subscriptionID string, quota int) error {
+	if quota <= 0 {
+		quota = s.proQuota()
+	}
 	_, err := s.Pool.Exec(ctx, `
 		UPDATE teams SET billing_status = 'active', stripe_subscription_id = $2, monthly_quota = $3, updated_at = now()
 		WHERE id = $1
@@ -137,23 +243,57 @@ func (s *Service) MarkCanceled(ctx context.Context, teamID uuid.UUID) error {
 	return err
 }
 
+func teamIDFromMeta(meta map[string]string, fallback string) (uuid.UUID, error) {
+	teamStr := ""
+	if meta != nil {
+		teamStr = meta["team_id"]
+	}
+	if teamStr == "" {
+		teamStr = fallback
+	}
+	return uuid.Parse(teamStr)
+}
+
+func subscriptionStatusToBilling(status string) string {
+	switch status {
+	case "active", "trialing":
+		return "active"
+	case "past_due", "unpaid":
+		return "past_due"
+	case "canceled", "incomplete_expired":
+		return "canceled"
+	case "paused":
+		return "paused"
+	default:
+		return ""
+	}
+}
+
 // HandleStripeEvent activates or cancels a team from a verified Stripe event payload.
 func (s *Service) HandleStripeEvent(ctx context.Context, eventType string, data json.RawMessage) error {
 	switch eventType {
-	case "checkout.session.completed":
+	case "checkout.session.completed", "checkout.session.async_payment_succeeded":
 		var sess struct {
-			Metadata       map[string]string `json:"metadata"`
-			Subscription   string            `json:"subscription"`
-			ClientReference string           `json:"client_reference_id"`
+			Metadata          map[string]string `json:"metadata"`
+			Subscription      string            `json:"subscription"`
+			ClientReferenceID string            `json:"client_reference_id"`
+			PaymentStatus     string            `json:"payment_status"`
+			Mode              string            `json:"mode"`
 		}
 		if err := json.Unmarshal(data, &sess); err != nil {
 			return err
 		}
-		teamStr := sess.Metadata["team_id"]
-		if teamStr == "" {
-			teamStr = sess.ClientReference
+		if sess.Mode != "" && sess.Mode != "subscription" {
+			return nil
 		}
-		teamID, err := uuid.Parse(teamStr)
+		// unpaid async checkout waits for async_payment_succeeded
+		if eventType == "checkout.session.completed" && sess.PaymentStatus == "unpaid" {
+			return nil
+		}
+		if sess.PaymentStatus != "" && sess.PaymentStatus != "paid" && sess.PaymentStatus != "no_payment_required" {
+			return nil
+		}
+		teamID, err := teamIDFromMeta(sess.Metadata, sess.ClientReferenceID)
 		if err != nil {
 			return fmt.Errorf("missing team_id in checkout session")
 		}
@@ -161,7 +301,31 @@ func (s *Service) HandleStripeEvent(ctx context.Context, eventType string, data 
 		if sub == "" {
 			sub = "sub_pending"
 		}
-		return s.MarkActive(ctx, teamID, sub, 100000)
+		return s.MarkActive(ctx, teamID, sub, s.proQuota())
+
+	case "customer.subscription.updated", "customer.subscription.created":
+		var sub struct {
+			ID       string            `json:"id"`
+			Status   string            `json:"status"`
+			Metadata map[string]string `json:"metadata"`
+		}
+		if err := json.Unmarshal(data, &sub); err != nil {
+			return err
+		}
+		billingStatus := subscriptionStatusToBilling(sub.Status)
+		if billingStatus == "" {
+			return nil
+		}
+		if teamID, err := teamIDFromMeta(sub.Metadata, ""); err == nil {
+			return s.MarkStatus(ctx, teamID, billingStatus, sub.ID, billingStatus == "active")
+		}
+		_, err := s.Pool.Exec(ctx, `
+			UPDATE teams SET billing_status = $2, updated_at = now(),
+			       monthly_quota = CASE WHEN $2 = 'active' THEN GREATEST(monthly_quota, $3) ELSE monthly_quota END
+			WHERE stripe_subscription_id = $1
+		`, sub.ID, billingStatus, s.proQuota())
+		return err
+
 	case "customer.subscription.deleted":
 		var sub struct {
 			Metadata map[string]string `json:"metadata"`
@@ -170,17 +334,43 @@ func (s *Service) HandleStripeEvent(ctx context.Context, eventType string, data 
 		if err := json.Unmarshal(data, &sub); err != nil {
 			return err
 		}
-		if teamStr := sub.Metadata["team_id"]; teamStr != "" {
-			teamID, err := uuid.Parse(teamStr)
-			if err == nil {
-				return s.MarkCanceled(ctx, teamID)
-			}
+		if teamID, err := teamIDFromMeta(sub.Metadata, ""); err == nil {
+			return s.MarkCanceled(ctx, teamID)
 		}
 		_, err := s.Pool.Exec(ctx, `
 			UPDATE teams SET billing_status = 'canceled', updated_at = now()
 			WHERE stripe_subscription_id = $1
 		`, sub.ID)
 		return err
+
+	case "invoice.payment_failed":
+		var inv struct {
+			Subscription string            `json:"subscription"`
+			Metadata     map[string]string `json:"metadata"`
+			Customer     string            `json:"customer"`
+		}
+		if err := json.Unmarshal(data, &inv); err != nil {
+			return err
+		}
+		if teamID, err := teamIDFromMeta(inv.Metadata, ""); err == nil {
+			return s.MarkStatus(ctx, teamID, "past_due", inv.Subscription, false)
+		}
+		if inv.Subscription != "" {
+			_, err := s.Pool.Exec(ctx, `
+				UPDATE teams SET billing_status = 'past_due', updated_at = now()
+				WHERE stripe_subscription_id = $1
+			`, inv.Subscription)
+			return err
+		}
+		if inv.Customer != "" {
+			_, err := s.Pool.Exec(ctx, `
+				UPDATE teams SET billing_status = 'past_due', updated_at = now()
+				WHERE stripe_customer_id = $1
+			`, inv.Customer)
+			return err
+		}
+		return nil
+
 	default:
 		return nil
 	}

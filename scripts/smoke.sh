@@ -142,6 +142,18 @@ curl -sf -X PATCH "$API/team" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
   -d '{"test_mode":true}' | grep -q '"test_mode":true'
 
+echo "== billing plans =="
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/billing/plans" | grep -q '"checkout_ready"'
+# without Stripe keys, checkout must fail cleanly
+CODE=$(curl -s -o /tmp/raisin-checkout.json -w "%{http_code}" -X POST "$API/billing/checkout" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{}')
+if [[ "$CODE" != "400" ]]; then
+  echo "expected 400 for unconfigured checkout, got $CODE" >&2
+  cat /tmp/raisin-checkout.json >&2
+  exit 1
+fi
+
 echo "== webhook create + events =="
 WH=$(curl -sf -X POST "$API/webhooks" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \

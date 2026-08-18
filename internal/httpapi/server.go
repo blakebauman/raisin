@@ -233,7 +233,9 @@ func (s *Server) Router() http.Handler {
 		r.Get("/logs", s.listLogs)
 		r.Get("/logs/{id}", s.getLog)
 		r.Get("/usage", s.getUsage)
+		r.Get("/billing/plans", s.getBillingPlans)
 		r.Post("/billing/checkout", s.createCheckout)
+		r.Post("/billing/portal", s.createBillingPortal)
 	})
 
 	r.Post("/billing/webhook", s.stripeWebhook)

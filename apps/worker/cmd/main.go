@@ -58,7 +58,13 @@ func main() {
 	defer rdb.Close()
 
 	wh := &webhook.Service{Pool: pool, Client: asynqClient}
-	bill := &billing.Service{Pool: pool, SecretKey: cfg.StripeSecretKey}
+	bill := &billing.Service{
+		Pool:            pool,
+		SecretKey:       cfg.StripeSecretKey,
+		PricePro:        cfg.StripePricePro,
+		PriceProAnnual:  cfg.StripePriceProAnnual,
+		ProMonthlyQuota: cfg.StripeProQuota,
+	}
 	supp := &suppression.Service{Pool: pool}
 	auto := &automation.Service{Pool: pool, Client: asynqClient}
 	proc := &events.Processor{Pool: pool, Redis: rdb, Webhooks: wh, Suppressions: supp, Billing: bill, Automations: auto}

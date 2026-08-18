@@ -1249,6 +1249,13 @@ func (s *Server) getUsage(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteJSON(w, 200, u)
 }
 
+func (s *Server) getBillingPlans(w http.ResponseWriter, r *http.Request) {
+	if teamOrWrite(w, r) == nil {
+		return
+	}
+	apierr.WriteJSON(w, 200, s.Billing.Plans())
+}
+
 func (s *Server) createCheckout(w http.ResponseWriter, r *http.Request) {
 	team := teamOrWrite(w, r)
 	if team == nil {
@@ -1257,18 +1264,41 @@ func (s *Server) createCheckout(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		SuccessURL string `json:"success_url"`
 		CancelURL  string `json:"cancel_url"`
+		Interval   string `json:"interval"`
 	}
 	if err := decode(r, &body); err != nil {
-		apierr.Write(w, apierr.Validation("invalid json"))
-		return
+		// empty body is fine
+		body.SuccessURL = ""
+		body.CancelURL = ""
+		body.Interval = ""
 	}
 	if body.SuccessURL == "" {
-		body.SuccessURL = s.Cfg.ConsoleOrigin + "/settings?success=1"
+		body.SuccessURL = s.Cfg.ConsoleOrigin + "/settings?billing=success"
 	}
 	if body.CancelURL == "" {
-		body.CancelURL = s.Cfg.ConsoleOrigin + "/settings"
+		body.CancelURL = s.Cfg.ConsoleOrigin + "/settings?billing=canceled"
 	}
-	url, err := s.Billing.CreateCheckout(r.Context(), team.ID, team.Name, body.SuccessURL, body.CancelURL)
+	url, err := s.Billing.CreateCheckout(r.Context(), team.ID, team.Name, body.SuccessURL, body.CancelURL, body.Interval)
+	if err != nil {
+		writeErr(w, apierr.Validation(err.Error()))
+		return
+	}
+	apierr.WriteJSON(w, 200, map[string]string{"url": url})
+}
+
+func (s *Server) createBillingPortal(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
+	var body struct {
+		ReturnURL string `json:"return_url"`
+	}
+	_ = decode(r, &body)
+	if body.ReturnURL == "" {
+		body.ReturnURL = s.Cfg.ConsoleOrigin + "/settings"
+	}
+	url, err := s.Billing.CreatePortal(r.Context(), team.ID, body.ReturnURL)
 	if err != nil {
 		writeErr(w, apierr.Validation(err.Error()))
 		return

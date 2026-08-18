@@ -704,10 +704,40 @@ paths:
       responses:
         '200':
           description: OK
+  /billing/plans:
+    get:
+      summary: Billing plan configuration (Price IDs present or not)
+      operationId: getBillingPlans
+      responses:
+        '200':
+          description: OK
   /billing/checkout:
     post:
-      summary: Create Stripe Checkout session
+      summary: Create Stripe Checkout session for Raisin Pro
       operationId: createCheckout
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success_url: { type: string }
+                cancel_url: { type: string }
+                interval: { type: string, enum: [month, year] }
+      responses:
+        '200':
+          description: OK
+  /billing/portal:
+    post:
+      summary: Create Stripe Customer Portal session
+      operationId: createBillingPortal
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                return_url: { type: string }
       responses:
         '200':
           description: OK

@@ -19,6 +19,9 @@ data:
   WORKER_ADDR: {{ .Values.config.WORKER_ADDR | quote }}
   SMTP_ADDR: {{ .Values.config.SMTP_ADDR | quote }}
   DEFAULT_MONTHLY_QUOTA: {{ .Values.config.DEFAULT_MONTHLY_QUOTA | quote }}
+  STRIPE_PRICE_PRO: {{ .Values.config.STRIPE_PRICE_PRO | default "" | quote }}
+  STRIPE_PRICE_PRO_ANNUAL: {{ .Values.config.STRIPE_PRICE_PRO_ANNUAL | default "" | quote }}
+  STRIPE_PRO_QUOTA: {{ .Values.config.STRIPE_PRO_QUOTA | default "100000" | quote }}
 ---
 apiVersion: v1
 kind: Secret

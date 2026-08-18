@@ -29,6 +29,9 @@ type Config struct {
 	SESSNSTopicARN      string
 	StripeSecretKey     string
 	StripeWebhookSecret string
+	StripePricePro      string
+	StripePriceProAnnual string
+	StripeProQuota      int
 	DefaultMonthlyQuota int
 }
 
@@ -56,6 +59,9 @@ func Load() Config {
 		SESSNSTopicARN:      getenv("SES_SNS_TOPIC_ARN", ""),
 		StripeSecretKey:     getenv("STRIPE_SECRET_KEY", ""),
 		StripeWebhookSecret: getenv("STRIPE_WEBHOOK_SECRET", ""),
+		StripePricePro:      getenv("STRIPE_PRICE_PRO", ""),
+		StripePriceProAnnual: getenv("STRIPE_PRICE_PRO_ANNUAL", ""),
+		StripeProQuota:      getenvInt("STRIPE_PRO_QUOTA", 100000),
 		DefaultMonthlyQuota: getenvInt("DEFAULT_MONTHLY_QUOTA", 3000),
 	}
 }
