@@ -37,7 +37,21 @@ export default function LoginPage() {
         if (err) throw new Error(err.message ?? "sign up failed");
       } else {
         const { error: err } = await signIn.email({ email, password });
-        if (err) throw new Error(err.message ?? "sign in failed");
+        if (err) {
+          // Local demo: create the Better Auth user on first sign-in attempt.
+          if (email === "demo@raisin.run") {
+            const { error: upErr } = await signUp.email({
+              email,
+              password,
+              name: name || "Demo User",
+            });
+            if (upErr) throw new Error(err.message ?? "sign in failed");
+            const { error: inErr } = await signIn.email({ email, password });
+            if (inErr) throw new Error(inErr.message ?? "sign in failed");
+          } else {
+            throw new Error(err.message ?? "sign in failed");
+          }
+        }
       }
       await provision();
       router.replace("/overview");
@@ -125,18 +139,19 @@ export default function LoginPage() {
 
         <button
           type="button"
-          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-          className="mt-4 w-full text-sm text-zinc-500 hover:text-zinc-200"
+          onClick={demoSkip}
+          className="mt-3 w-full rounded-md border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900 disabled:opacity-50"
+          disabled={loading}
         >
-          {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
+          Continue with seeded demo team
         </button>
 
         <button
           type="button"
-          onClick={demoSkip}
-          className="mt-2 w-full text-xs text-zinc-600 hover:text-zinc-400"
+          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+          className="mt-4 w-full text-sm text-zinc-500 hover:text-zinc-200"
         >
-          Continue with seeded demo team
+          {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
         </button>
       </form>
     </div>

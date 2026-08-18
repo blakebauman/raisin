@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 
 type Contact = {
@@ -240,7 +241,7 @@ export default function ContactsPage() {
             key={c.id}
             className="flex items-center justify-between rounded-lg border border-zinc-800 px-4 py-3 text-sm text-zinc-200"
           >
-            <div>
+            <Link href={`/contacts/${c.id}`} className="min-w-0 hover:text-orange-400">
               <span>{c.email}</span>
               {c.first_name && <span className="ml-2 text-zinc-500">{c.first_name}</span>}
               {c.unsubscribed && <span className="ml-2 text-xs text-zinc-500">unsubscribed</span>}
@@ -251,8 +252,8 @@ export default function ContactsPage() {
                     .join(" · ")}
                 </div>
               )}
-            </div>
-            <button type="button" onClick={() => remove(c.id)} className="text-xs text-red-400 hover:underline">
+            </Link>
+            <button type="button" onClick={() => remove(c.id)} className="text-xs text-red-400 hover:underline shrink-0 ml-4">
               Delete
             </button>
           </li>

@@ -218,6 +218,29 @@ func (s *Service) AddToSegment(ctx context.Context, teamID, segmentID, contactID
 	return err
 }
 
+func (s *Service) ListContactSegments(ctx context.Context, teamID, contactID uuid.UUID) ([]*Segment, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT s.id, s.name, s.created_at
+		FROM segments s
+		JOIN segment_members sm ON sm.segment_id = s.id
+		WHERE sm.contact_id = $1 AND s.team_id = $2
+		ORDER BY s.name
+	`, contactID, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*Segment{}
+	for rows.Next() {
+		var seg Segment
+		if err := rows.Scan(&seg.ID, &seg.Name, &seg.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, &seg)
+	}
+	return out, nil
+}
+
 func (s *Service) RemoveFromSegment(ctx context.Context, teamID, segmentID, contactID uuid.UUID) error {
 	tag, err := s.Pool.Exec(ctx, `
 		DELETE FROM segment_members sm

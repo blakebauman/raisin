@@ -660,6 +660,23 @@ func (s *Server) addContactSegment(w http.ResponseWriter, r *http.Request) {
 	apierr.WriteJSON(w, 200, map[string]bool{"ok": true})
 }
 
+func (s *Server) listContactSegments(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
+	cid, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	list, err := s.Audience.ListContactSegments(r.Context(), team.ID, cid)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, 200, map[string]any{"data": list})
+}
+
 func (s *Server) removeContactSegment(w http.ResponseWriter, r *http.Request) {
 	team := teamOrWrite(w, r)
 	if team == nil {

@@ -12,7 +12,8 @@ export const auth = betterAuth({
     requireEmailVerification: false,
   },
   trustedOrigins: [
-    process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    process.env.BETTER_AUTH_URL ?? "http://localhost:3001",
+    "http://localhost:3001",
     "http://localhost:3000",
   ],
 });

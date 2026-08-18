@@ -324,5 +324,11 @@ echo "  API:     $API"
 echo "  Worker:  $WORKER"
 echo "  Mailpit: ${MAILPIT_URL:-http://localhost:8026}"
 echo "  Demo key: $KEY"
-echo "  Open console → Continue with seeded demo team"
+echo "  Console: http://localhost:3001/login  (demo@raisin.run / demo-demo-demo)"
 echo "  Sample IDs: domain=$DOM_ACME_ID webhook=$WH_ID broadcast_draft=$BC_DRAFT_ID"
+
+# Best-effort: ensure Better Auth demo user exists (console must be running).
+CONSOLE="${CONSOLE_URL:-http://localhost:3001}"
+curl -sf -X POST "$CONSOLE/api/auth/sign-up/email" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"demo@raisin.run","password":"demo-demo-demo","name":"Demo User"}' >/dev/null 2>&1 || true
