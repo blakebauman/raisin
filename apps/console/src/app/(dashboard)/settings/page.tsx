@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import {
   EmptyState,
@@ -41,16 +42,31 @@ type Invite = {
   token?: string;
 };
 
-export default function SettingsPage() {
+type Plans = {
+  configured: boolean;
+  name: string;
+  interval: string;
+  has_annual: boolean;
+  monthly_quota: number;
+  checkout_ready: boolean;
+  portal_ready: boolean;
+};
+
+function SettingsInner() {
+  const params = useSearchParams();
+  const billingFlash = params.get("billing");
   const [usage, setUsage] = useState<any>(null);
+  const [plans, setPlans] = useState<Plans | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
   const [createdInvite, setCreatedInvite] = useState<Invite | null>(null);
+  const [interval, setInterval] = useState<"month" | "year">("month");
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [billingBusy, setBillingBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [ok, setOk] = useState("");
   const [canManage, setCanManage] = useState(true);
@@ -77,15 +93,52 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
+    if (billingFlash === "success") setOk("Checkout complete — Pro activates when Stripe confirms payment.");
+    if (billingFlash === "canceled") setMsg("Checkout canceled.");
+  }, [billingFlash]);
+
+  useEffect(() => {
     apiFetch("/usage").then(setUsage).catch((e) => setMsg(e.message));
+    apiFetch<Plans>("/billing/plans").then(setPlans).catch(() => undefined);
     loadTeam().catch((e) => setMsg(e.message));
     loadMembers().catch((e) => setMsg(e.message));
     loadInvites().catch(() => undefined);
   }, []);
 
   async function checkout() {
-    const res = await apiFetch<{ url: string }>("/billing/checkout", { method: "POST", body: "{}" });
-    if (res.url) window.location.href = res.url;
+    setBillingBusy(true);
+    setMsg("");
+    try {
+      const res = await apiFetch<{ url: string }>("/billing/checkout", {
+        method: "POST",
+        body: JSON.stringify({
+          interval,
+          success_url: `${window.location.origin}/settings?billing=success`,
+          cancel_url: `${window.location.origin}/settings?billing=canceled`,
+        }),
+      });
+      if (res.url) window.location.href = res.url;
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : "checkout failed");
+    } finally {
+      setBillingBusy(false);
+    }
+  }
+
+  async function openPortal() {
+    setBillingBusy(true);
+    setMsg("");
+    try {
+      const res = await apiFetch<{ url: string }>("/billing/portal", {
+        method: "POST",
+        body: JSON.stringify({ return_url: `${window.location.origin}/settings` }),
+      });
+      if (res.url) window.location.href = res.url;
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : "portal failed");
+    } finally {
+      setBillingBusy(false);
+    }
   }
 
   async function toggleTestMode() {
@@ -164,6 +217,9 @@ export default function SettingsPage() {
       setMsg("Could not copy link");
     }
   }
+
+  const status = usage?.billing_status ?? team?.billing_status ?? "free";
+  const isPaid = status === "active" || status === "past_due";
 
   return (
     <div>
@@ -307,13 +363,52 @@ export default function SettingsPage() {
         <SectionLabel>Billing</SectionLabel>
         {usage && (
           <p className="text-[13px] text-[var(--muted)]">
-            {usage.emails_sent}/{usage.quota} this period · {usage.billing_status}
+            {usage.emails_sent.toLocaleString()}/{usage.quota.toLocaleString()} this period ·{" "}
+            <span className="capitalize">{usage.billing_status}</span>
+            {plans?.configured ? ` · ${plans.name}` : null}
           </p>
         )}
-        <button type="button" onClick={checkout} className="btn-primary mt-4">
-          Upgrade with Stripe
-        </button>
-        <p className="mt-3 text-xs text-zinc-500">Requires STRIPE_SECRET_KEY on the API.</p>
+        {plans?.configured && !isPaid && (
+          <p className="mt-2 text-[13px] text-zinc-400">
+            Upgrade to {plans.name} for {plans.monthly_quota.toLocaleString()} emails/month.
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          {!isPaid && plans?.has_annual && (
+            <Field label="Billing period" htmlFor="billing-interval">
+              <select
+                id="billing-interval"
+                className="input"
+                value={interval}
+                onChange={(e) => setInterval(e.target.value as "month" | "year")}
+              >
+                <option value="month">Monthly</option>
+                <option value="year">Annual</option>
+              </select>
+            </Field>
+          )}
+          {!isPaid && (
+            <button
+              type="button"
+              onClick={checkout}
+              disabled={billingBusy || plans?.checkout_ready === false}
+              className="btn-primary"
+            >
+              {billingBusy ? "Redirecting…" : "Upgrade to Pro"}
+            </button>
+          )}
+          {isPaid && (
+            <button type="button" onClick={openPortal} disabled={billingBusy} className="btn-secondary">
+              {billingBusy ? "Redirecting…" : "Manage billing"}
+            </button>
+          )}
+        </div>
+        {plans && !plans.checkout_ready && (
+          <p className="mt-3 text-xs text-zinc-500">
+            Set <code className="text-zinc-400">STRIPE_SECRET_KEY</code> and{" "}
+            <code className="text-zinc-400">STRIPE_PRICE_PRO</code> on the API to enable checkout.
+          </p>
+        )}
       </section>
 
       <button
@@ -327,5 +422,13 @@ export default function SettingsPage() {
         Sign out
       </button>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="text-[13px] text-[var(--muted)]">Loading…</div>}>
+      <SettingsInner />
+    </Suspense>
   );
 }
