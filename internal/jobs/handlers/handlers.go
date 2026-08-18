@@ -24,6 +24,7 @@ import (
 	"github.com/blakebauman/raisin/internal/storage"
 	"github.com/blakebauman/raisin/internal/tracking"
 	tmpl "github.com/blakebauman/raisin/internal/template"
+	"github.com/blakebauman/raisin/internal/unsubtoken"
 	"github.com/blakebauman/raisin/internal/webhook"
 )
 
@@ -116,7 +117,7 @@ func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
 		}
 	}
 
-	unsubURL := fmt.Sprintf("%s/unsubscribe/%s", h.Cfg.TrackingBaseURL, emailID.String())
+	unsubURL := fmt.Sprintf("%s/unsubscribe/%s", strings.TrimRight(h.Cfg.TrackingBaseURL, "/"), emailID.String())
 	var tagVars map[string]string
 	if len(tagsJSON) > 0 {
 		var tags map[string]any
@@ -134,11 +135,14 @@ func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
 	}
 	if len(to) > 0 {
 		if e := normalizeUnsubEmail(to[0]); e != "" {
-			sep := "?"
-			if strings.Contains(unsubURL, "?") {
-				sep = "&"
+			tok := unsubtoken.Sign(h.Cfg.JWTSecret, emailID, e, unsubtoken.DefaultTTL)
+			if tok != "" {
+				sep := "?"
+				if strings.Contains(unsubURL, "?") {
+					sep = "&"
+				}
+				unsubURL += sep + "token=" + url.QueryEscape(tok)
 			}
-			unsubURL += sep + "email=" + url.QueryEscape(e)
 		}
 	}
 	if len(tagVars) > 0 {
@@ -147,6 +151,7 @@ func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
 		textBody = tmpl.Render(textBody, tagVars)
 	}
 	htmlBody = tracking.Inject(htmlBody, emailID, h.Cfg.TrackingBaseURL, openTrack, clickTrack)
+	htmlBody, textBody = tracking.AppendUnsubscribe(htmlBody, textBody, unsubURL)
 	headers := map[string]string{
 		"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubURL),
 		"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -591,11 +596,7 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := normalizeUnsubEmail(r.URL.Query().Get("email"))
-	if target == "" {
-		target = normalizeUnsubEmail(r.Form.Get("email"))
-	}
-	targets := resolveUnsubTargets(toAddrs, target)
+	targets := h.resolveUnsubRequest(emailID, r, toAddrs)
 	if len(targets) == 0 {
 		http.Error(w, "recipient required", http.StatusBadRequest)
 		return
@@ -642,6 +643,26 @@ func normalizeUnsubEmail(s string) string {
 		}
 	}
 	return s
+}
+
+// resolveUnsubRequest prefers a signed token; falls back to email= matching to_addrs.
+func (h *Handlers) resolveUnsubRequest(emailID uuid.UUID, r *http.Request, toAddrs []string) []string {
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		token = strings.TrimSpace(r.Form.Get("token"))
+	}
+	if token != "" {
+		email, err := unsubtoken.Verify(h.Cfg.JWTSecret, emailID, token)
+		if err != nil {
+			return nil
+		}
+		return resolveUnsubTargets(toAddrs, email)
+	}
+	target := normalizeUnsubEmail(r.URL.Query().Get("email"))
+	if target == "" {
+		target = normalizeUnsubEmail(r.Form.Get("email"))
+	}
+	return resolveUnsubTargets(toAddrs, target)
 }
 
 // resolveUnsubTargets picks which to_addrs to mutate. Explicit email must match; single-rcpt defaults.
@@ -695,15 +716,16 @@ func (h *Handlers) writeUnsubscribeConfirm(w http.ResponseWriter, emailID, topic
 		return
 	}
 	for _, e := range normed {
+		tok := unsubtoken.Sign(h.Cfg.JWTSecret, emailID, e, unsubtoken.DefaultTTL)
 		action := base + topicQ
 		sep := "?"
 		if strings.Contains(action, "?") {
 			sep = "&"
 		}
-		action += sep + "email=" + url.QueryEscape(e)
+		action += sep + "token=" + url.QueryEscape(tok)
 		b.WriteString(`<form method="POST" action="` + action + `" style="margin:1rem 0">`)
 		b.WriteString(topicField)
-		b.WriteString(`<input type="hidden" name="email" value="` + e + `">`)
+		b.WriteString(`<input type="hidden" name="token" value="` + tok + `">`)
 		b.WriteString(`<input type="hidden" name="List-Unsubscribe" value="One-Click">`)
 		b.WriteString(`<button type="submit">` + label + ` (` + e + `)</button></form>`)
 	}

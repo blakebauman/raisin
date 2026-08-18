@@ -28,6 +28,9 @@ func Inject(html string, emailID uuid.UUID, baseURL string, open, click bool) st
 			if strings.HasPrefix(orig, "mailto:") || strings.HasPrefix(orig, "#") || strings.HasPrefix(orig, "{{") {
 				return m
 			}
+			if strings.Contains(strings.ToLower(orig), "/unsubscribe/") {
+				return m
+			}
 			tracked := fmt.Sprintf("%s/t/c/%s?u=%s", base, emailID.String(), url.QueryEscape(orig))
 			return strings.Replace(m, orig, tracked, 1)
 		})

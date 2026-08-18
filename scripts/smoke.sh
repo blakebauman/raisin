@@ -38,6 +38,31 @@ curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/$EMAI
 
 echo "== global unsubscribe blocks send =="
 WORKER="${WORKER_URL:-http://localhost:18081}"
+MAILPIT="${MAILPIT_URL:-http://localhost:8026}"
+# Delivered HTML should include a visible unsubscribe footer with signed token
+for i in $(seq 1 20); do
+  MP=$(curl -sf "$MAILPIT/api/v1/messages?limit=20" || true)
+  if echo "$MP" | python3 -c "
+import sys,json,urllib.request
+msgs=json.load(sys.stdin).get('messages') or []
+for m in msgs:
+  if 'Smoke' in (m.get('Subject') or ''):
+    print(m['ID']); break
+" 2>/dev/null | grep -q .; then
+    break
+  fi
+  sleep 0.3
+done
+MP_ID=$(curl -sf "$MAILPIT/api/v1/messages?limit=20" | python3 -c "
+import sys,json
+msgs=json.load(sys.stdin).get('messages') or []
+for m in msgs:
+  if 'Smoke' in (m.get('Subject') or ''):
+    print(m['ID']); break
+")
+MP_HTML=$(curl -sf "$MAILPIT/api/v1/message/$MP_ID" | python3 -c "import sys,json; print(json.load(sys.stdin).get('HTML') or '')")
+echo "$MP_HTML" | grep -q 'Unsubscribe</a>'
+echo "$MP_HTML" | grep -q 'token='
 # GET must not mutate (link scanners)
 curl -sf "$WORKER/unsubscribe/$EMAIL_ID" | grep -qi Confirm
 CODE_GET=$(curl -s -o /tmp/raisin-unsub-get-send.json -w "%{http_code}" -X POST "$API/emails" \
@@ -48,10 +73,18 @@ if [[ "$CODE_GET" != "200" ]]; then
   cat /tmp/raisin-unsub-get-send.json >&2
   exit 1
 fi
-# POST (one-click / confirm) mutates — scoped to recipient
-curl -sf -X POST "$WORKER/unsubscribe/$EMAIL_ID?email=smoke%40example.com" \
+# POST with signed token from confirm page
+UNSUB_TOKEN=$(curl -sf "$WORKER/unsubscribe/$EMAIL_ID" | python3 -c "
+import sys,re
+html=sys.stdin.read()
+m=re.search(r'name=\"token\" value=\"([^\"]+)\"', html)
+print(m.group(1) if m else '')
+")
+[[ -n "$UNSUB_TOKEN" ]] || { echo "missing unsub token on confirm page"; exit 1; }
+curl -sf -X POST "$WORKER/unsubscribe/$EMAIL_ID" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "List-Unsubscribe=One-Click" | grep -qi Unsubscribed
+  --data-urlencode "token=$UNSUB_TOKEN" \
+  --data-urlencode "List-Unsubscribe=One-Click" | grep -qi Unsubscribed
 CODE=$(curl -s -o /tmp/raisin-unsub-send.json -w "%{http_code}" -X POST "$API/emails" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
   -d '{"from":"Acme <hello@acme.test>","to":["smoke@example.com"],"subject":"Blocked","html":"<p>x</p>"}')
@@ -75,6 +108,19 @@ for s in data:
 SP_CLEAN=$(cat /tmp/raisin-sp-id.txt)
 if [[ -n "$SP_CLEAN" ]]; then
   curl -sf -X DELETE "$API/suppressions/$SP_CLEAN" -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" >/dev/null
+fi
+# contact unsubscribed flag may still block — re-opt-in contact if present
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts?email=smoke@example.com" >/dev/null 2>&1 || true
+CT_SMOKE=$(curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts" | python3 -c "
+import sys,json
+for c in json.load(sys.stdin).get('data') or []:
+  if c.get('email')=='smoke@example.com':
+    print(c['id']); break
+" || true)
+if [[ -n "${CT_SMOKE:-}" ]]; then
+  curl -sf -X PATCH "$API/contacts/$CT_SMOKE" \
+    -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+    -d '{"unsubscribed":false}' >/dev/null || true
 fi
 
 echo "== domain create + verify =="
