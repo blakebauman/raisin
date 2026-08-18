@@ -127,7 +127,10 @@ func (s *Service) UpdateContact(ctx context.Context, teamID, id uuid.UUID, first
 				_, _ = s.Pool.Exec(ctx, `
 					INSERT INTO suppressions (team_id, email, reason)
 					VALUES ($1, $2, 'unsubscribe')
-					ON CONFLICT (team_id, email) DO UPDATE SET reason = EXCLUDED.reason
+					ON CONFLICT (team_id, email) DO UPDATE SET reason = CASE
+						WHEN suppressions.reason IN ('bounce', 'complaint') THEN suppressions.reason
+						ELSE EXCLUDED.reason
+					END
 				`, teamID, emailAddr)
 			} else {
 				_, _ = s.Pool.Exec(ctx, `
@@ -360,6 +363,9 @@ func (s *Service) TopicRecipientEmails(ctx context.Context, teamID, topicID uuid
 		WHERE t.id = $1 AND c.team_id = $2 AND t.team_id = $2
 		  AND c.unsubscribed = FALSE
 		  AND COALESCE(ts.subscribed, t.default_subscription = 'opt_out') = TRUE
+		  AND NOT EXISTS (
+		    SELECT 1 FROM suppressions s WHERE s.team_id = c.team_id AND s.email = c.email
+		  )
 	`
 	args := []any{topicID, teamID}
 	if segmentID != nil {
@@ -425,6 +431,9 @@ func (s *Service) SegmentContactIDs(ctx context.Context, segmentID uuid.UUID) ([
 		SELECT c.id FROM contacts c
 		JOIN segment_members sm ON sm.contact_id = c.id
 		WHERE sm.segment_id = $1 AND c.unsubscribed = FALSE
+		  AND NOT EXISTS (
+		    SELECT 1 FROM suppressions s WHERE s.team_id = c.team_id AND s.email = c.email
+		  )
 	`, segmentID)
 	if err != nil {
 		return nil, err

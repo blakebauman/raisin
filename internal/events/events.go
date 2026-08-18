@@ -32,14 +32,22 @@ type Processor struct {
 type SESEvent struct {
 	EventType string `json:"eventType"`
 	Mail      struct {
-		MessageID string              `json:"messageId"`
-		Tags      map[string][]string `json:"tags"`
+		MessageID     string              `json:"messageId"`
+		Destination   []string            `json:"destination"`
+		Tags          map[string][]string `json:"tags"`
 	} `json:"mail"`
 	Bounce *struct {
-		BounceType string `json:"bounceType"`
+		BounceType        string `json:"bounceType"`
+		BouncedRecipients []struct {
+			EmailAddress string `json:"emailAddress"`
+		} `json:"bouncedRecipients"`
 	} `json:"bounce"`
-	Complaint *struct{} `json:"complaint"`
-	Click     *struct {
+	Complaint *struct {
+		ComplainedRecipients []struct {
+			EmailAddress string `json:"emailAddress"`
+		} `json:"complainedRecipients"`
+	} `json:"complaint"`
+	Click *struct {
 		Link string `json:"link"`
 	} `json:"click"`
 	Open *struct{} `json:"open"`
@@ -78,32 +86,36 @@ func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
 	}
 
 	mapped := mapSESType(ev.EventType)
-	newStatus := statusFromEvent(mapped)
+	permanentBounce := mapped == "email.bounced" && ev.Bounce != nil && strings.EqualFold(ev.Bounce.BounceType, "Permanent")
+	transientBounce := mapped == "email.bounced" && ev.Bounce != nil && !strings.EqualFold(ev.Bounce.BounceType, "Permanent")
+
 	data, _ := json.Marshal(ev)
 	_, _ = p.Pool.Exec(ctx, `
 		INSERT INTO email_events (team_id, email_id, type, data) VALUES ($1,$2,$3,$4)
 	`, teamID, emailID, mapped, data)
+
+	// Soft/transient bounces are recorded as events only — do not flip terminal status.
+	newStatus := ""
+	if !transientBounce {
+		newStatus = statusFromEvent(mapped)
+	}
 	if newStatus != "" {
 		_, _ = p.Pool.Exec(ctx, `UPDATE emails SET status = $2, updated_at = now() WHERE id = $1`, emailID, newStatus)
 	}
 
-	if mapped == "email.bounced" || mapped == "email.complained" {
-		shouldSuppress := mapped == "email.complained"
-		if mapped == "email.bounced" && ev.Bounce != nil {
-			// SES: Permanent vs Transient — only hard bounces join the suppression list
-			bt := strings.EqualFold(ev.Bounce.BounceType, "Permanent")
-			shouldSuppress = bt
+	if mapped == "email.complained" || permanentBounce {
+		reason := "bounce"
+		addrs := bounceRecipientEmails(ev)
+		if mapped == "email.complained" {
+			reason = "complaint"
+			addrs = complaintRecipientEmails(ev)
 		}
-		if shouldSuppress {
-			var toAddrs []string
-			_ = p.Pool.QueryRow(ctx, `SELECT to_addrs FROM emails WHERE id = $1`, emailID).Scan(&toAddrs)
-			reason := "bounce"
-			if mapped == "email.complained" {
-				reason = "complaint"
-			}
-			for _, a := range toAddrs {
-				_, _ = p.Suppressions.Add(ctx, teamID, a, reason)
-			}
+		if len(addrs) == 0 {
+			// Fallback only when SES omitted recipient lists
+			_ = p.Pool.QueryRow(ctx, `SELECT to_addrs FROM emails WHERE id = $1`, emailID).Scan(&addrs)
+		}
+		for _, a := range addrs {
+			_, _ = p.Suppressions.Add(ctx, teamID, a, reason)
 		}
 	}
 
@@ -118,6 +130,32 @@ func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
 		})
 	}
 	return nil
+}
+
+func bounceRecipientEmails(ev SESEvent) []string {
+	if ev.Bounce == nil {
+		return nil
+	}
+	var out []string
+	for _, r := range ev.Bounce.BouncedRecipients {
+		if e := strings.TrimSpace(r.EmailAddress); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func complaintRecipientEmails(ev SESEvent) []string {
+	if ev.Complaint == nil {
+		return nil
+	}
+	var out []string
+	for _, r := range ev.Complaint.ComplainedRecipients {
+		if e := strings.TrimSpace(r.EmailAddress); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func (p *Processor) RecordLocalEvent(ctx context.Context, teamID, emailID uuid.UUID, eventType string, data any) error {

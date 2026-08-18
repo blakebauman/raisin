@@ -8,21 +8,34 @@ import (
 	"github.com/blakebauman/raisin/internal/events"
 )
 
-func TestSESEventBounceTypeJSON(t *testing.T) {
-	raw := []byte(`{"eventType":"Bounce","mail":{"messageId":"m1"},"bounce":{"bounceType":"Transient"}}`)
+func TestSESEventBounceRecipientsJSON(t *testing.T) {
+	raw := []byte(`{
+		"eventType":"Bounce",
+		"mail":{"messageId":"m1"},
+		"bounce":{
+			"bounceType":"Permanent",
+			"bouncedRecipients":[{"emailAddress":"bad@example.com"},{"emailAddress":"also@example.com"}]
+		}
+	}`)
 	var ev events.SESEvent
 	if err := json.Unmarshal(raw, &ev); err != nil {
 		t.Fatal(err)
 	}
-	if ev.Bounce == nil || !strings.EqualFold(ev.Bounce.BounceType, "Transient") {
-		t.Fatalf("got %+v", ev.Bounce)
+	if !strings.EqualFold(ev.Bounce.BounceType, "Permanent") {
+		t.Fatalf("type %+v", ev.Bounce)
 	}
-	raw2 := []byte(`{"eventType":"Bounce","mail":{"messageId":"m1"},"bounce":{"bounceType":"Permanent"}}`)
-	var ev2 events.SESEvent
-	if err := json.Unmarshal(raw2, &ev2); err != nil {
+	if len(ev.Bounce.BouncedRecipients) != 2 {
+		t.Fatalf("recipients %+v", ev.Bounce.BouncedRecipients)
+	}
+}
+
+func TestSESEventTransientBounceJSON(t *testing.T) {
+	raw := []byte(`{"eventType":"Bounce","mail":{"messageId":"m1"},"bounce":{"bounceType":"Transient","bouncedRecipients":[{"emailAddress":"soft@example.com"}]}}`)
+	var ev events.SESEvent
+	if err := json.Unmarshal(raw, &ev); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.EqualFold(ev2.Bounce.BounceType, "Permanent") {
-		t.Fatalf("got %+v", ev2.Bounce)
+	if !strings.EqualFold(ev.Bounce.BounceType, "Transient") {
+		t.Fatalf("got %+v", ev.Bounce)
 	}
 }

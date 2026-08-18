@@ -48,8 +48,8 @@ if [[ "$CODE_GET" != "200" ]]; then
   cat /tmp/raisin-unsub-get-send.json >&2
   exit 1
 fi
-# POST (one-click / confirm) mutates
-curl -sf -X POST "$WORKER/unsubscribe/$EMAIL_ID" \
+# POST (one-click / confirm) mutates — scoped to recipient
+curl -sf -X POST "$WORKER/unsubscribe/$EMAIL_ID?email=smoke%40example.com" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "List-Unsubscribe=One-Click" | grep -qi Unsubscribed
 CODE=$(curl -s -o /tmp/raisin-unsub-send.json -w "%{http_code}" -X POST "$API/emails" \
@@ -168,7 +168,7 @@ for e in data:
 done
 if [[ -n "${TOPIC_MAIL:-}" ]]; then
   WORKER="${WORKER_URL:-http://localhost:18081}"
-  curl -sf -X POST "$WORKER/unsubscribe/$TOPIC_MAIL?topic=$TPIC_ID" \
+  curl -sf -X POST "$WORKER/unsubscribe/$TOPIC_MAIL?topic=$TPIC_ID&email=smoke-$STAMP%40example.com" \
     -H "Content-Type: application/x-www-form-urlencoded" \
     -d "List-Unsubscribe=One-Click" >/dev/null
   curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts/$CT_ID/topics" \

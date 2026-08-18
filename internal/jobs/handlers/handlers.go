@@ -132,6 +132,15 @@ func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
 			}
 		}
 	}
+	if len(to) > 0 {
+		if e := normalizeUnsubEmail(to[0]); e != "" {
+			sep := "?"
+			if strings.Contains(unsubURL, "?") {
+				sep = "&"
+			}
+			unsubURL += sep + "email=" + url.QueryEscape(e)
+		}
+	}
 	if len(tagVars) > 0 {
 		subject = tmpl.Render(subject, tagVars)
 		htmlBody = tmpl.Render(htmlBody, tagVars)
@@ -316,16 +325,35 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 	if topicID != nil {
 		baseTags["topic_id"] = topicID.String()
 	}
+	ok, fail := 0, 0
 	for _, addr := range emails {
 		tags := h.mergeContactTags(ctx, tid, addr, baseTags)
 		_, err := emailSvc.Send(ctx, team, email.SendRequest{
 			From: from, To: []string{addr}, Subject: subject, HTML: htmlBody, Text: textBody, Tags: tags,
 		}, "")
 		if err != nil {
+			fail++
 			log.Printf("broadcast send to %s: %v", addr, err)
+			continue
 		}
+		ok++
 	}
-	_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = 'sent', sent_at = now(), updated_at = now() WHERE id = $1`, bid)
+	status := "sent"
+	switch {
+	case len(emails) == 0:
+		status = "sent"
+	case fail == 0:
+		status = "sent"
+	case ok == 0:
+		status = "failed"
+	default:
+		status = "partial"
+	}
+	if status == "sent" || status == "partial" {
+		_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = $2, sent_at = now(), updated_at = now() WHERE id = $1`, bid, status)
+	} else {
+		_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = $2, updated_at = now() WHERE id = $1`, bid, status)
+	}
 	return nil
 }
 
@@ -517,9 +545,9 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	_ = r.ParseForm()
 	topicParam := r.URL.Query().Get("topic")
 	if topicParam == "" {
-		_ = r.ParseForm()
 		topicParam = r.Form.Get("topic")
 	}
 	var topicID uuid.UUID
@@ -531,17 +559,6 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	switch r.Method {
-	case http.MethodGet, http.MethodHead:
-		h.writeUnsubscribeConfirm(w, emailID, topicID)
-		return
-	case http.MethodPost:
-		// RFC 8058 one-click or confirm form
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var teamID uuid.UUID
 	var toAddrs []string
 	_ = h.Pool.QueryRow(r.Context(), `SELECT team_id, to_addrs FROM emails WHERE id = $1`, emailID).Scan(&teamID, &toAddrs)
@@ -550,7 +567,28 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, a := range toAddrs {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		h.writeUnsubscribeConfirm(w, emailID, topicID, toAddrs)
+		return
+	case http.MethodPost:
+		// RFC 8058 one-click or confirm form
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	target := normalizeUnsubEmail(r.URL.Query().Get("email"))
+	if target == "" {
+		target = normalizeUnsubEmail(r.Form.Get("email"))
+	}
+	targets := resolveUnsubTargets(toAddrs, target)
+	if len(targets) == 0 {
+		http.Error(w, "recipient required", http.StatusBadRequest)
+		return
+	}
+
+	for _, a := range targets {
 		if topicID != uuid.Nil {
 			_, _ = h.Pool.Exec(r.Context(), `
 				INSERT INTO topic_subscriptions (topic_id, contact_id, subscribed, updated_at)
@@ -568,7 +606,10 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 			_, _ = h.Pool.Exec(r.Context(), `
 				INSERT INTO suppressions (team_id, email, reason)
 				VALUES ($1, lower($2), 'unsubscribe')
-				ON CONFLICT (team_id, email) DO UPDATE SET reason = EXCLUDED.reason
+				ON CONFLICT (team_id, email) DO UPDATE SET reason = CASE
+					WHEN suppressions.reason IN ('bounce', 'complaint') THEN suppressions.reason
+					ELSE EXCLUDED.reason
+				END
 			`, teamID, a)
 		}
 	}
@@ -580,27 +621,83 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><h1>Unsubscribed</h1><p>` + msg + `</p></body></html>`))
 }
 
-func (h *Handlers) writeUnsubscribeConfirm(w http.ResponseWriter, emailID, topicID uuid.UUID) {
+func normalizeUnsubEmail(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if i := strings.Index(s, "<"); i >= 0 {
+		if j := strings.Index(s, ">"); j > i {
+			s = strings.TrimSpace(s[i+1 : j])
+		}
+	}
+	return s
+}
+
+// resolveUnsubTargets picks which to_addrs to mutate. Explicit email must match; single-rcpt defaults.
+func resolveUnsubTargets(toAddrs []string, requested string) []string {
+	normed := make([]string, 0, len(toAddrs))
+	for _, a := range toAddrs {
+		if e := normalizeUnsubEmail(a); e != "" {
+			normed = append(normed, e)
+		}
+	}
+	if requested != "" {
+		for _, e := range normed {
+			if e == requested {
+				return []string{e}
+			}
+		}
+		return nil
+	}
+	if len(normed) == 1 {
+		return normed
+	}
+	// Multi-recipient without explicit email: refuse to avoid collateral unsub
+	return nil
+}
+
+func (h *Handlers) writeUnsubscribeConfirm(w http.ResponseWriter, emailID, topicID uuid.UUID, toAddrs []string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	action := "/unsubscribe/" + emailID.String()
+	base := "/unsubscribe/" + emailID.String()
+	topicQ := ""
 	topicField := ""
 	label := "Unsubscribe from all email"
 	if topicID != uuid.Nil {
+		topicQ = "?topic=" + url.QueryEscape(topicID.String())
 		topicField = `<input type="hidden" name="topic" value="` + topicID.String() + `">`
 		label = "Unsubscribe from this topic"
-		action += "?topic=" + url.QueryEscape(topicID.String())
 	}
-	_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><title>Unsubscribe</title></head><body>
+	var b strings.Builder
+	b.WriteString(`<!DOCTYPE html><html><head><title>Unsubscribe</title></head><body>
 <h1>Confirm unsubscribe</h1>
-<p>Click the button below to confirm. Link scanners will not unsubscribe you.</p>
-<form method="POST" action="` + action + `">
-` + topicField + `
-<input type="hidden" name="List-Unsubscribe" value="One-Click">
-<button type="submit">` + label + `</button>
-</form>
-</body></html>`))
+<p>Click the button below to confirm. Link scanners will not unsubscribe you.</p>`)
+	normed := make([]string, 0, len(toAddrs))
+	for _, a := range toAddrs {
+		if e := normalizeUnsubEmail(a); e != "" {
+			normed = append(normed, e)
+		}
+	}
+	if len(normed) == 0 {
+		b.WriteString(`<p>No recipients found for this message.</p></body></html>`)
+		_, _ = w.Write([]byte(b.String()))
+		return
+	}
+	for _, e := range normed {
+		action := base + topicQ
+		sep := "?"
+		if strings.Contains(action, "?") {
+			sep = "&"
+		}
+		action += sep + "email=" + url.QueryEscape(e)
+		b.WriteString(`<form method="POST" action="` + action + `" style="margin:1rem 0">`)
+		b.WriteString(topicField)
+		b.WriteString(`<input type="hidden" name="email" value="` + e + `">`)
+		b.WriteString(`<input type="hidden" name="List-Unsubscribe" value="One-Click">`)
+		b.WriteString(`<button type="submit">` + label + ` (` + e + `)</button></form>`)
+	}
+	b.WriteString(`</body></html>`)
+	_, _ = w.Write([]byte(b.String()))
 }
+
 
 
 func (h *Handlers) handleTestEvent(w http.ResponseWriter, r *http.Request) {

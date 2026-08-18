@@ -34,7 +34,11 @@ func (s *Service) Add(ctx context.Context, teamID uuid.UUID, email, reason strin
 	err := s.Pool.QueryRow(ctx, `
 		INSERT INTO suppressions (team_id, email, reason)
 		VALUES ($1,$2,$3)
-		ON CONFLICT (team_id, email) DO UPDATE SET reason = EXCLUDED.reason
+		ON CONFLICT (team_id, email) DO UPDATE SET reason = CASE
+			WHEN EXCLUDED.reason IN ('bounce', 'complaint') THEN EXCLUDED.reason
+			WHEN suppressions.reason IN ('bounce', 'complaint') THEN suppressions.reason
+			ELSE EXCLUDED.reason
+		END
 		RETURNING id
 	`, teamID, email, reason).Scan(&id)
 	if err != nil {
