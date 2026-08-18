@@ -339,6 +339,88 @@ paths:
       responses:
         '200':
           description: OK
+  /team/members:
+    get:
+      summary: List team members (console JWT)
+      operationId: listTeamMembers
+      responses:
+        '200':
+          description: OK
+  /team/members/{id}:
+    patch:
+      summary: Update member role (owner only)
+      operationId: updateTeamMember
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Remove a member or leave the team
+      operationId: removeTeamMember
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
+  /team/invites:
+    get:
+      summary: List pending invites (owner/admin)
+      operationId: listTeamInvites
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create a team invite (owner/admin)
+      operationId: createTeamInvite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+                role: { type: string, enum: [admin, member] }
+      responses:
+        '201':
+          description: Created
+  /team/invites/preview:
+    get:
+      summary: Preview an invite by token (public)
+      operationId: previewTeamInvite
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+  /team/invites/accept:
+    post:
+      summary: Accept an invite (console JWT; email must match)
+      operationId: acceptTeamInvite
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '200':
+          description: OK
+  /team/invites/{id}:
+    delete:
+      summary: Revoke a pending invite
+      operationId: revokeTeamInvite
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
   /suppressions:
     post:
       summary: Add suppression

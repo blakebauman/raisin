@@ -77,6 +77,7 @@ func (s *Server) Router() http.Handler {
 	r.Post("/console/token", s.consoleToken)
 	r.Post("/console/provision", s.consoleProvision)
 	r.Post("/inbound/ses", s.inboundSES) // SNS → SES receipt (no API key)
+	r.Get("/team/invites/preview", s.previewTeamInvite)
 
 	r.Group(func(r chi.Router) {
 		r.Use(s.authenticate)
@@ -135,6 +136,13 @@ func (s *Server) Router() http.Handler {
 
 		r.Get("/team", s.getTeam)
 		r.Patch("/team", s.updateTeam)
+		r.Get("/team/members", s.listTeamMembers)
+		r.Patch("/team/members/{id}", s.updateTeamMember)
+		r.Delete("/team/members/{id}", s.removeTeamMember)
+		r.Get("/team/invites", s.listTeamInvites)
+		r.Post("/team/invites", s.createTeamInvite)
+		r.Delete("/team/invites/{id}", s.revokeTeamInvite)
+		r.Post("/team/invites/accept", s.acceptTeamInvite)
 
 		r.Route("/suppressions", func(r chi.Router) {
 			r.Post("/", s.addSuppression)
@@ -324,6 +332,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				return
 			}
 			ctx := context.WithValue(r.Context(), auth.TeamKey, team)
+			ctx = context.WithValue(ctx, auth.ConsoleClaimsKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}

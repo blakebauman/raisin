@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signIn, signUp } from "@/lib/auth-client";
 import { Field, WorkspaceMark } from "@/components/ui";
 
-export default function LoginPage() {
+function LoginInner() {
   const router = useRouter();
+  const params = useSearchParams();
+  const next = params.get("next")?.trim() || "/overview";
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("demo@raisin.run");
   const [password, setPassword] = useState("demo-demo-demo");
@@ -15,11 +17,16 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  function safeNext(path: string) {
+    if (path.startsWith("/") && !path.startsWith("//")) return path;
+    return "/overview";
+  }
+
   useEffect(() => {
     if (localStorage.getItem("raisin_team_token")) {
-      router.replace("/overview");
+      router.replace(safeNext(next));
     }
-  }, [router]);
+  }, [router, next]);
 
   async function provision() {
     const res = await fetch("/api/session/provision", { method: "POST" });
@@ -55,7 +62,7 @@ export default function LoginPage() {
         }
       }
       await provision();
-      router.replace("/overview");
+      router.replace(safeNext(next));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "login failed");
     } finally {
@@ -76,7 +83,7 @@ export default function LoginPage() {
       if (!res.ok) throw new Error(data.error ?? "demo login failed");
       localStorage.setItem("raisin_team_token", data.token);
       localStorage.setItem("raisin_email", data.email);
-      router.replace("/overview");
+      router.replace(safeNext(next));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "failed");
     } finally {
@@ -168,5 +175,13 @@ export default function LoginPage() {
         </form>
       </main>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-[13px] text-[var(--muted)]">Loading…</div>}>
+      <LoginInner />
+    </Suspense>
   );
 }

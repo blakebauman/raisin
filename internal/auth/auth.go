@@ -37,6 +37,7 @@ type ContextKey string
 const TeamKey ContextKey = "team"
 const APIKeyCtxKey ContextKey = "api_key"
 const OAuthScopesKey ContextKey = "oauth_scopes"
+const ConsoleClaimsKey ContextKey = "console_claims"
 
 func HashKey(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
@@ -132,6 +133,15 @@ func LoadTeam(ctx context.Context, pool *db.Pool, teamID uuid.UUID) (*Team, erro
 func TeamFromContext(ctx context.Context) *Team {
 	t, _ := ctx.Value(TeamKey).(*Team)
 	return t
+}
+
+func ConsoleClaimsFromContext(ctx context.Context) *ConsoleClaims {
+	c, _ := ctx.Value(ConsoleClaimsKey).(*ConsoleClaims)
+	return c
+}
+
+func IsTeamAdmin(role string) bool {
+	return role == "owner" || role == "admin"
 }
 
 func ScopesFromContext(ctx context.Context) []string {

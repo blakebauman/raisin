@@ -438,4 +438,39 @@ curl -sf -X POST "$API/console/provision" \
   -d "{\"secret\":\"${JWT_SECRET:-dev-jwt-secret-change-me-in-production}\",\"email\":\"user-$STAMP@raisin.run\",\"name\":\"Smoke User\"}" \
   | grep -q '"token"'
 
+echo "== team invites =="
+OWNER_TOK=$(curl -sf -X POST "$API/console/token" \
+  -H "Content-Type: application/json" -H "User-Agent: $UA" \
+  -d "{\"secret\":\"${JWT_SECRET:-dev-jwt-secret-change-me-in-production}\",\"team_id\":\"00000000-0000-0000-0000-000000000001\",\"user_id\":\"00000000-0000-0000-0000-000000000002\"}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+INVITEE="invitee-$STAMP@raisin.run"
+INV=$(curl -sf -X POST "$API/team/invites" \
+  -H "X-Team-Token: $OWNER_TOK" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"email\":\"$INVITEE\",\"role\":\"member\"}")
+echo "$INV" | grep -q '"token"'
+INV_TOKEN=$(echo "$INV" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+INV_ID=$(echo "$INV" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf "$API/team/invites/preview?token=$INV_TOKEN" | grep -q pending
+curl -sf -H "X-Team-Token: $OWNER_TOK" -H "User-Agent: $UA" "$API/team/invites" | grep -q "$INVITEE"
+curl -sf -H "X-Team-Token: $OWNER_TOK" -H "User-Agent: $UA" "$API/team/members" | grep -q demo@raisin.run
+INVITEE_PROV=$(curl -sf -X POST "$API/console/provision" \
+  -H "Content-Type: application/json" -H "User-Agent: $UA" \
+  -d "{\"secret\":\"${JWT_SECRET:-dev-jwt-secret-change-me-in-production}\",\"email\":\"$INVITEE\",\"name\":\"Invitee\"}")
+INVITEE_TOK=$(echo "$INVITEE_PROV" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+ACCEPT=$(curl -sf -X POST "$API/team/invites/accept" \
+  -H "X-Team-Token: $INVITEE_TOK" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"token\":\"$INV_TOKEN\"}")
+echo "$ACCEPT" | grep -q '"role":"member"'
+JOINED_TOK=$(echo "$ACCEPT" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+curl -sf -H "X-Team-Token: $JOINED_TOK" -H "User-Agent: $UA" "$API/team/members" | grep -q "$INVITEE"
+# create+revoke a second invite
+INV2=$(curl -sf -X POST "$API/team/invites" \
+  -H "X-Team-Token: $OWNER_TOK" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"email\":\"revoke-$STAMP@raisin.run\",\"role\":\"admin\"}")
+INV2_ID=$(echo "$INV2" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -X DELETE "$API/team/invites/$INV2_ID" \
+  -H "X-Team-Token: $OWNER_TOK" -H "User-Agent: $UA" | grep -q '"revoked":true'
+# silence unused
+: "$INV_ID"
+
 echo "OK"
