@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { EmptyState, Msg, PageHeader, SectionLabel, StatusChip } from "@/components/ui";
 
 type Contact = {
   id: string;
@@ -35,6 +36,7 @@ export default function ContactDetailPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [msg, setMsg] = useState("");
+  const [msgTone, setMsgTone] = useState<"muted" | "error" | "ok">("muted");
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -61,7 +63,10 @@ export default function ContactDetailPage() {
   }
 
   useEffect(() => {
-    load().catch((e) => setMsg(e.message));
+    load().catch((e) => {
+      setMsg(e.message);
+      setMsgTone("error");
+    });
   }, [id]);
 
   async function saveProfile(e: React.FormEvent) {
@@ -84,9 +89,11 @@ export default function ContactDetailPage() {
         }),
       });
       setMsg("Saved");
+      setMsgTone("ok");
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "save failed");
+      setMsgTone("error");
     } finally {
       setBusy(false);
     }
@@ -103,6 +110,7 @@ export default function ContactDetailPage() {
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "update failed");
+      setMsgTone("error");
     } finally {
       setBusy(false);
     }
@@ -118,6 +126,7 @@ export default function ContactDetailPage() {
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "segment update failed");
+      setMsgTone("error");
     } finally {
       setBusy(false);
     }
@@ -133,6 +142,7 @@ export default function ContactDetailPage() {
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "topic update failed");
+      setMsgTone("error");
     } finally {
       setBusy(false);
     }
@@ -143,7 +153,10 @@ export default function ContactDetailPage() {
   if (!contact) {
     return (
       <div>
-        <p className="text-sm text-zinc-500">{msg || "Loading…"}</p>
+        <Link href="/contacts" className="text-xs text-zinc-500 hover:text-zinc-300">
+          ← Contacts
+        </Link>
+        <p className="mt-6 text-sm text-zinc-500">{msg || "Loading…"}</p>
       </div>
     );
   }
@@ -153,43 +166,38 @@ export default function ContactDetailPage() {
       <Link href="/contacts" className="text-xs text-zinc-500 hover:text-zinc-300">
         ← Contacts
       </Link>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mt-3 mb-2 text-zinc-50">
-        {contact.email}
-      </h1>
-      <p className="text-sm text-zinc-500 mb-8">
-        {contact.unsubscribed ? "Unsubscribed" : "Subscribed"} · id {contact.id.slice(0, 8)}…
-      </p>
-      {msg && <p className="mb-4 text-sm text-zinc-400">{msg}</p>}
+      <div className="mt-3">
+        <PageHeader
+          title={contact.email}
+          description={`id ${contact.id.slice(0, 8)}…`}
+          actions={<StatusChip status={contact.unsubscribed ? "unsubscribed" : "subscribed"} />}
+        />
+      </div>
+
+      <Msg tone={msgTone}>{msg}</Msg>
 
       <form onSubmit={saveProfile} className="mb-10 grid gap-3">
-        <div className="flex flex-wrap gap-2">
+        <SectionLabel>Profile</SectionLabel>
+        <div className="grid gap-3 sm:grid-cols-2">
           <input
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            className="field"
             placeholder="First name"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
           />
           <input
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+            className="field"
             placeholder="Last name"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
           />
-          <button
-            type="button"
-            disabled={busy}
-            onClick={toggleUnsub}
-            className="rounded-md border border-zinc-700 px-3 py-2 text-xs hover:bg-zinc-900"
-          >
-            {contact.unsubscribed ? "Re-subscribe" : "Unsubscribe"}
-          </button>
         </div>
         {properties.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             {properties.map((p) => (
               <input
                 key={p.id}
-                className="w-40 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
+                className="field"
                 placeholder={`${p.key} (${p.type})`}
                 type={p.type === "number" ? "number" : "text"}
                 value={propValues[p.key] ?? ""}
@@ -198,59 +206,68 @@ export default function ContactDetailPage() {
             ))}
           </div>
         )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-fit rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
-        >
-          Save
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="submit" disabled={busy} className="btn-primary">
+            Save
+          </button>
+          <button type="button" disabled={busy} onClick={toggleUnsub} className="btn-secondary">
+            {contact.unsubscribed ? "Re-subscribe" : "Unsubscribe"}
+          </button>
+        </div>
       </form>
 
       <section className="mb-10">
-        <h2 className="text-sm uppercase tracking-wider text-zinc-500 mb-3">Segments</h2>
-        <ul className="space-y-2">
-          {segments.map((s) => {
-            const on = memberIds.has(s.id);
-            return (
-              <li key={s.id} className="flex items-center justify-between rounded-md border border-zinc-800 px-3 py-2 text-sm">
-                <span>{s.name}</span>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => toggleSegment(s.id, on)}
-                  className="text-xs text-orange-400 hover:underline"
-                >
-                  {on ? "Remove" : "Add"}
-                </button>
-              </li>
-            );
-          })}
-          {segments.length === 0 && <p className="text-sm text-zinc-500">No segments yet</p>}
-        </ul>
+        <SectionLabel>Segments</SectionLabel>
+        {segments.length === 0 ? (
+          <EmptyState title="No segments yet" hint="Create segments from the contacts page." />
+        ) : (
+          <ul className="space-y-2">
+            {segments.map((s) => {
+              const on = memberIds.has(s.id);
+              return (
+                <li key={s.id} className="list-row">
+                  <span className="text-zinc-200">{s.name}</span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => toggleSegment(s.id, on)}
+                    className="text-xs text-orange-400 hover:underline disabled:opacity-50"
+                  >
+                    {on ? "Remove" : "Add"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       <section>
-        <h2 className="text-sm uppercase tracking-wider text-zinc-500 mb-3">Topics</h2>
-        <ul className="space-y-2">
-          {contactTopics.map((t) => (
-            <li key={t.topic_id} className="flex items-center justify-between rounded-md border border-zinc-800 px-3 py-2 text-sm">
-              <span>
-                {t.name ?? t.topic_id}
-                <span className="ml-2 text-xs text-zinc-500">{t.subscribed ? "subscribed" : "opted out"}</span>
-              </span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setTopic(t.topic_id, !t.subscribed)}
-                className="text-xs text-orange-400 hover:underline"
-              >
-                {t.subscribed ? "Opt out" : "Subscribe"}
-              </button>
-            </li>
-          ))}
-          {contactTopics.length === 0 && <p className="text-sm text-zinc-500">No topics yet</p>}
-        </ul>
+        <SectionLabel>Topics</SectionLabel>
+        {contactTopics.length === 0 ? (
+          <EmptyState title="No topics yet" hint="Create topics under Audience → Topics." />
+        ) : (
+          <ul className="space-y-2">
+            {contactTopics.map((t) => (
+              <li key={t.topic_id} className="list-row">
+                <span className="text-zinc-200">
+                  {t.name ?? t.topic_id}
+                  <span className="ml-2 text-xs text-zinc-500">
+                    {t.subscribed ? "subscribed" : "opted out"}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setTopic(t.topic_id, !t.subscribed)}
+                  className="text-xs text-orange-400 hover:underline disabled:opacity-50"
+                >
+                  {t.subscribed ? "Opt out" : "Subscribe"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   );

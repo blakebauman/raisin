@@ -38,7 +38,6 @@ export default function LoginPage() {
       } else {
         const { error: err } = await signIn.email({ email, password });
         if (err) {
-          // Local demo: create the Better Auth user on first sign-in attempt.
           if (email === "demo@raisin.run") {
             const { error: upErr } = await signUp.email({
               email,
@@ -66,7 +65,6 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      // Fallback: mint demo team token without Better Auth (local seed)
       const res = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,73 +83,74 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="flex min-h-screen items-center justify-center px-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-md rounded-xl border border-zinc-800 bg-[#141417]/90 p-8 shadow-2xl shadow-black/40"
+        className="w-full max-w-md rounded-xl border border-zinc-800 bg-[var(--panel)]/95 p-8 shadow-2xl shadow-black/40"
       >
-        <h1 className="font-[family-name:var(--font-display)] text-4xl text-zinc-50 mb-2">
-          Raisin
+        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">raisin.run</p>
+        <h1 className="mt-2 font-[family-name:var(--font-display)] text-4xl tracking-tight text-zinc-50">
+          Console
         </h1>
-        <p className="text-sm text-zinc-500 mb-8">
-          {mode === "signin" ? "Sign in to the console" : "Create your Raisin account"}
+        <p className="mt-2 text-sm text-zinc-500">
+          {mode === "signin" ? "Sign in to manage email for your team." : "Create an account for this workspace."}
         </p>
 
-        {mode === "signup" && (
-          <>
-            <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-2">Name</label>
+        <div className="mt-8 space-y-4">
+          {mode === "signup" && (
+            <div>
+              <label className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">Name</label>
+              <input className="field" value={name} onChange={(e) => setName(e.target.value)} required />
+            </div>
+          )}
+          <div>
+            <label className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">Email</label>
             <input
-              className="mb-4 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm outline-none focus:border-orange-500/60"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              className="field"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              type="email"
               required
             />
-          </>
-        )}
-
-        <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-2">Email</label>
-        <input
-          className="mb-4 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm outline-none focus:border-orange-500/60"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          type="email"
-          required
-        />
-        <label className="block text-xs uppercase tracking-wider text-zinc-500 mb-2">Password</label>
-        <input
-          className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm outline-none focus:border-orange-500/60"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          type="password"
-          minLength={8}
-          required
-        />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">Password</label>
+            <input
+              className="field"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type="password"
+              minLength={8}
+              required
+            />
+          </div>
+        </div>
 
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="mt-6 w-full rounded-md bg-orange-500 px-3 py-2.5 text-sm font-medium text-black hover:bg-orange-400 disabled:opacity-50"
-        >
+        <button type="submit" disabled={loading} className="btn-primary mt-6 w-full py-2.5">
           {loading ? "…" : mode === "signin" ? "Sign in" : "Create account"}
         </button>
 
         <button
           type="button"
-          onClick={demoSkip}
-          className="mt-3 w-full rounded-md border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-900 disabled:opacity-50"
-          disabled={loading}
-        >
-          Continue with seeded demo team
-        </button>
-
-        <button
-          type="button"
           onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-          className="mt-4 w-full text-sm text-zinc-500 hover:text-zinc-200"
+          className="mt-4 w-full text-sm text-zinc-400 hover:text-zinc-200"
         >
           {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
+        </button>
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-zinc-800" />
+          </div>
+          <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
+            <span className="bg-[var(--panel)] px-2 text-zinc-600">local</span>
+          </div>
+        </div>
+
+        <button type="button" onClick={demoSkip} disabled={loading} className="btn-ghost w-full text-xs text-zinc-500">
+          Continue with seeded demo team
         </button>
       </form>
     </div>

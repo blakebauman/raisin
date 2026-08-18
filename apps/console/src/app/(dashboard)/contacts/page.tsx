@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { EmptyState, Field, Msg, PageHeader, SectionLabel } from "@/components/ui";
 
 type Contact = {
   id: string;
@@ -27,6 +28,8 @@ export default function ContactsPage() {
   const [propType, setPropType] = useState("string");
   const [propValues, setPropValues] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
+  const [msgTone, setMsgTone] = useState<"muted" | "error" | "ok">("muted");
+  const [setupOpen, setSetupOpen] = useState(false);
 
   async function load() {
     const [c, s, p] = await Promise.all([
@@ -40,7 +43,10 @@ export default function ContactsPage() {
   }
 
   useEffect(() => {
-    load().catch((e) => setMsg(e.message));
+    load().catch((e) => {
+      setMsg(e.message);
+      setMsgTone("error");
+    });
   }, []);
 
   async function create(e: React.FormEvent) {
@@ -70,30 +76,29 @@ export default function ContactsPage() {
       setEmail("");
       setFirstName("");
       setPropValues({});
+      setMsg("Contact added");
+      setMsgTone("ok");
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "failed");
+      setMsgTone("error");
     }
   }
 
   async function createSegment(e: React.FormEvent) {
     e.preventDefault();
-    setMsg("");
     try {
-      await apiFetch("/segments", {
-        method: "POST",
-        body: JSON.stringify({ name: segmentName }),
-      });
+      await apiFetch("/segments", { method: "POST", body: JSON.stringify({ name: segmentName }) });
       setSegmentName("");
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "segment failed");
+      setMsgTone("error");
     }
   }
 
   async function createProperty(e: React.FormEvent) {
     e.preventDefault();
-    setMsg("");
     try {
       await apiFetch("/contact-properties", {
         method: "POST",
@@ -104,6 +109,7 @@ export default function ContactsPage() {
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "property failed");
+      setMsgTone("error");
     }
   }
 
@@ -113,6 +119,7 @@ export default function ContactsPage() {
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "delete property failed");
+      setMsgTone("error");
     }
   }
 
@@ -122,144 +129,176 @@ export default function ContactsPage() {
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "delete failed");
+      setMsgTone("error");
     }
   }
 
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-8">Contacts</h1>
-      {msg && <p className="mb-4 text-sm text-red-400">{msg}</p>}
+      <PageHeader
+        title="Contacts"
+        description="Audience records with properties, segments, and topic preferences."
+        actions={
+          <button type="button" className="btn-secondary" onClick={() => setSetupOpen((v) => !v)}>
+            {setupOpen ? "Hide setup" : "Segments & properties"}
+          </button>
+        }
+      />
 
-      <form onSubmit={create} className="mb-6 grid gap-2 max-w-2xl">
-        <div className="flex flex-wrap gap-2">
-          <input
-            className="flex-1 min-w-[12rem] rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-            placeholder="user@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            className="w-36 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-            placeholder="First name"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-          />
-          <select
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-            value={selectedSegment}
-            onChange={(e) => setSelectedSegment(e.target.value)}
-          >
-            <option value="">No segment</option>
-            {segments.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <button type="submit" className="rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black">
-            Add
+      <form onSubmit={create} className="form-panel mb-6 max-w-2xl">
+        <SectionLabel>Add contact</SectionLabel>
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Email" htmlFor="c-email" className="min-w-[12rem] flex-1">
+            <input
+              id="c-email"
+              className="field"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="First name" htmlFor="c-first" className="w-36">
+            <input
+              id="c-first"
+              className="field"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+            />
+          </Field>
+          <Field label="Segment" htmlFor="c-seg" className="w-40">
+            <select
+              id="c-seg"
+              className="field"
+              value={selectedSegment}
+              onChange={(e) => setSelectedSegment(e.target.value)}
+            >
+              <option value="">None</option>
+              {segments.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <button type="submit" className="btn-primary">
+            Add contact
           </button>
         </div>
         {properties.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {properties.map((p) => (
-              <input
-                key={p.id}
-                className="w-40 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-                placeholder={`${p.key} (${p.type})`}
-                type={p.type === "number" ? "number" : "text"}
-                value={propValues[p.key] ?? ""}
-                onChange={(e) => setPropValues((prev) => ({ ...prev, [p.key]: e.target.value }))}
-              />
+              <Field key={p.id} label={p.key} htmlFor={`c-prop-${p.id}`} className="w-40">
+                <input
+                  id={`c-prop-${p.id}`}
+                  className="field"
+                  type={p.type === "number" ? "number" : "text"}
+                  value={propValues[p.key] ?? ""}
+                  onChange={(e) => setPropValues((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                />
+              </Field>
             ))}
           </div>
         )}
       </form>
 
-      <form onSubmit={createSegment} className="mb-4 flex gap-2 max-w-md">
-        <input
-          className="flex-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          placeholder="New segment name"
-          value={segmentName}
-          onChange={(e) => setSegmentName(e.target.value)}
-          required
-        />
-        <button type="submit" className="rounded-md border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-900">
-          Create segment
-        </button>
-      </form>
+      {setupOpen && (
+        <div className="form-panel mb-8 max-w-2xl">
+          <SectionLabel>Segments & properties</SectionLabel>
+          <form onSubmit={createSegment} className="flex flex-wrap items-end gap-2">
+            <Field label="Segment name" htmlFor="seg-name" className="min-w-[10rem] flex-1">
+              <input
+                id="seg-name"
+                className="field"
+                value={segmentName}
+                onChange={(e) => setSegmentName(e.target.value)}
+                required
+              />
+            </Field>
+            <button type="submit" className="btn-secondary">
+              Create segment
+            </button>
+          </form>
+          <form onSubmit={createProperty} className="flex flex-wrap items-end gap-2">
+            <Field label="Property key" htmlFor="prop-key" className="min-w-[10rem] flex-1">
+              <input
+                id="prop-key"
+                className="field"
+                value={propKey}
+                onChange={(e) => setPropKey(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Type" htmlFor="prop-type" className="w-28">
+              <select
+                id="prop-type"
+                className="field"
+                value={propType}
+                onChange={(e) => setPropType(e.target.value)}
+              >
+                <option value="string">string</option>
+                <option value="number">number</option>
+              </select>
+            </Field>
+            <button type="submit" className="btn-secondary">
+              Add property
+            </button>
+          </form>
+          {(properties.length > 0 || segments.length > 0) && (
+            <div className="flex flex-wrap gap-2">
+              {segments.map((s) => (
+                <span key={s.id} className="rounded-md border border-zinc-800 px-2.5 py-1 text-xs text-zinc-400">
+                  Segment · {s.name}
+                </span>
+              ))}
+              {properties.map((p) => (
+                <span
+                  key={p.id}
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 px-2.5 py-1 text-xs text-zinc-300"
+                >
+                  {p.key} · {p.type}
+                  <button type="button" onClick={() => removeProperty(p.id)} className="text-red-400 hover:underline">
+                    Remove
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-      <form onSubmit={createProperty} className="mb-8 flex flex-wrap gap-2 max-w-xl">
-        <input
-          className="flex-1 min-w-[10rem] rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          placeholder="Property key (e.g. plan)"
-          value={propKey}
-          onChange={(e) => setPropKey(e.target.value)}
-          required
-        />
-        <select
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          value={propType}
-          onChange={(e) => setPropType(e.target.value)}
-        >
-          <option value="string">string</option>
-          <option value="number">number</option>
-        </select>
-        <button type="submit" className="rounded-md border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-900">
-          Add property
-        </button>
-      </form>
+      <div className="mb-3">
+        <Msg tone={msgTone}>{msg}</Msg>
+      </div>
 
-      {properties.length > 0 && (
-        <ul className="mb-6 flex flex-wrap gap-2">
-          {properties.map((p) => (
-            <li
-              key={p.id}
-              className="flex items-center gap-2 rounded-md border border-zinc-800 px-3 py-1.5 text-xs text-zinc-300"
-            >
-              <span>
-                {p.key} · {p.type}
-              </span>
-              <button type="button" onClick={() => removeProperty(p.id)} className="text-red-400 hover:underline">
-                Remove
+      <SectionLabel>Directory</SectionLabel>
+      {list.length === 0 ? (
+        <EmptyState title="No contacts yet" hint="Add an email above, or create contacts via the API." />
+      ) : (
+        <ul className="space-y-1.5">
+          {list.map((c) => (
+            <li key={c.id} className="list-row">
+              <Link href={`/contacts/${c.id}`} className="min-w-0 hover:text-orange-400">
+                <div className="truncate text-zinc-100">{c.email}</div>
+                <div className="mt-0.5 truncate text-xs text-zinc-500">
+                  {[c.first_name, c.unsubscribed ? "unsubscribed" : null]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  {c.properties && Object.keys(c.properties).length > 0
+                    ? ` · ${Object.entries(c.properties)
+                        .slice(0, 3)
+                        .map(([k, v]) => `${k}=${String(v)}`)
+                        .join(", ")}`
+                    : ""}
+                </div>
+              </Link>
+              <button type="button" onClick={() => remove(c.id)} className="btn-danger shrink-0 px-2 py-1 text-xs">
+                Delete
               </button>
             </li>
           ))}
         </ul>
       )}
-
-      {segments.length > 0 && (
-        <p className="mb-4 text-xs text-zinc-500">
-          Segments: {segments.map((s) => s.name).join(", ")}
-        </p>
-      )}
-
-      <ul className="space-y-2">
-        {list.map((c) => (
-          <li
-            key={c.id}
-            className="flex items-center justify-between rounded-lg border border-zinc-800 px-4 py-3 text-sm text-zinc-200"
-          >
-            <Link href={`/contacts/${c.id}`} className="min-w-0 hover:text-orange-400">
-              <span>{c.email}</span>
-              {c.first_name && <span className="ml-2 text-zinc-500">{c.first_name}</span>}
-              {c.unsubscribed && <span className="ml-2 text-xs text-zinc-500">unsubscribed</span>}
-              {c.properties && Object.keys(c.properties).length > 0 && (
-                <div className="mt-1 text-xs text-zinc-500">
-                  {Object.entries(c.properties)
-                    .map(([k, v]) => `${k}=${String(v)}`)
-                    .join(" · ")}
-                </div>
-              )}
-            </Link>
-            <button type="button" onClick={() => remove(c.id)} className="text-xs text-red-400 hover:underline shrink-0 ml-4">
-              Delete
-            </button>
-          </li>
-        ))}
-        {list.length === 0 && <p className="text-sm text-zinc-500">No contacts yet</p>}
-      </ul>
     </div>
   );
 }

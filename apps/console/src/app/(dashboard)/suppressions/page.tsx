@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import {
+  EmptyState,
+  Field,
+  FormPanel,
+  FormRow,
+  Msg,
+  PageHeader,
+} from "@/components/ui";
 
 export default function SuppressionsPage() {
   const [list, setList] = useState<any[]>([]);
@@ -9,13 +17,18 @@ export default function SuppressionsPage() {
   const [reason, setReason] = useState("manual");
   const [batch, setBatch] = useState("");
   const [msg, setMsg] = useState("");
+  const [msgTone, setMsgTone] = useState<"muted" | "error" | "ok">("muted");
+  const [batchOpen, setBatchOpen] = useState(false);
 
   async function load() {
     const res = await apiFetch<{ data: any[] }>("/suppressions");
     setList(res.data ?? []);
   }
   useEffect(() => {
-    load().catch((e) => setMsg(e.message));
+    load().catch((e) => {
+      setMsg(e.message);
+      setMsgTone("error");
+    });
   }, []);
 
   async function add(e: React.FormEvent) {
@@ -27,9 +40,12 @@ export default function SuppressionsPage() {
         body: JSON.stringify({ email, reason }),
       });
       setEmail("");
+      setMsg("Added");
+      setMsgTone("ok");
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "failed");
+      setMsgTone("error");
     }
   }
 
@@ -47,10 +63,13 @@ export default function SuppressionsPage() {
         body: JSON.stringify({ emails, reason }),
       });
       setBatch("");
+      setBatchOpen(false);
       setMsg(`Added ${emails.length}`);
+      setMsgTone("ok");
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "batch failed");
+      setMsgTone("error");
     }
   }
 
@@ -60,65 +79,90 @@ export default function SuppressionsPage() {
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "remove failed");
+      setMsgTone("error");
     }
   }
 
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-8">Suppressions</h1>
-      {msg && <p className="mb-4 text-sm text-zinc-400">{msg}</p>}
+      <PageHeader
+        title="Suppressions"
+        description="Addresses that must not receive mail."
+        actions={
+          <button type="button" className="btn-secondary" onClick={() => setBatchOpen((v) => !v)}>
+            {batchOpen ? "Hide batch" : "Add batch"}
+          </button>
+        }
+      />
 
-      <form onSubmit={add} className="mb-4 flex flex-wrap gap-2 max-w-xl">
-        <input
-          className="flex-1 min-w-[12rem] rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          placeholder="bounce@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-        <select
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        >
-          <option value="manual">manual</option>
-          <option value="bounce">bounce</option>
-          <option value="complaint">complaint</option>
-        </select>
-        <button type="submit" className="rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black">
-          Add
+      <Msg tone={msgTone}>{msg}</Msg>
+
+      <FormRow onSubmit={add}>
+        <Field label="Email" htmlFor="sup-email" className="min-w-[12rem] flex-1">
+          <input
+            id="sup-email"
+            className="field"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Reason" htmlFor="sup-reason" className="w-36">
+          <select
+            id="sup-reason"
+            className="field"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          >
+            <option value="manual">manual</option>
+            <option value="bounce">bounce</option>
+            <option value="complaint">complaint</option>
+          </select>
+        </Field>
+        <button type="submit" className="btn-primary">
+          Add address
         </button>
-      </form>
+      </FormRow>
 
-      <form onSubmit={addBatch} className="mb-8 max-w-xl">
-        <textarea
-          className="w-full min-h-20 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-mono"
-          placeholder={"batch@example.com\nother@example.com"}
-          value={batch}
-          onChange={(e) => setBatch(e.target.value)}
-        />
-        <button type="submit" className="mt-2 rounded-md border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-900">
-          Add batch
-        </button>
-      </form>
+      {batchOpen && (
+        <FormPanel onSubmit={addBatch} title="Batch import">
+          <Field label="Addresses" htmlFor="sup-batch" hint="One email per line, or comma-separated.">
+            <textarea
+              id="sup-batch"
+              className="field min-h-24 font-mono text-xs"
+              value={batch}
+              onChange={(e) => setBatch(e.target.value)}
+              required
+              autoFocus
+            />
+          </Field>
+          <button type="submit" className="btn-secondary w-fit">
+            Add batch
+          </button>
+        </FormPanel>
+      )}
 
-      <ul className="space-y-2">
-        {list.map((s) => (
-          <li key={s.id} className="flex items-center justify-between rounded-lg border border-zinc-800 px-4 py-3 text-sm">
-            <div>
-              <div className="text-zinc-100">{s.email}</div>
-              <div className="text-xs text-zinc-500">
-                {s.reason}
-                {s.created_at ? ` · ${new Date(s.created_at).toLocaleString()}` : ""}
+      {list.length === 0 ? (
+        <EmptyState title="No suppressions" hint="Add addresses that must never be sent to." />
+      ) : (
+        <ul className="space-y-2">
+          {list.map((s) => (
+            <li key={s.id} className="list-row">
+              <div className="min-w-0">
+                <div className="text-zinc-100">{s.email}</div>
+                <div className="text-xs text-zinc-500">
+                  {s.reason}
+                  {s.created_at ? ` · ${new Date(s.created_at).toLocaleString()}` : ""}
+                </div>
               </div>
-            </div>
-            <button type="button" onClick={() => remove(s.id)} className="text-xs text-red-400 hover:underline">
-              Remove
-            </button>
-          </li>
-        ))}
-        {list.length === 0 && <p className="text-sm text-zinc-500">No suppressions</p>}
-      </ul>
+              <button type="button" onClick={() => remove(s.id)} className="btn-danger text-xs">
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -4,9 +4,12 @@
   --background: #0c0c0e;
   --foreground: #f4f4f5;
   --panel: #141417;
+  --panel-2: #0f0f12;
   --border: #27272a;
+  --border-strong: #3f3f46;
   --accent: #f97316;
   --muted: #a1a1aa;
+  --muted-2: #71717a;
 }
 
 @theme inline {
@@ -19,8 +22,8 @@
 
 body {
   background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(249, 115, 22, 0.12), transparent 50%),
-    radial-gradient(800px 400px at 90% 0%, rgba(255, 255, 255, 0.04), transparent 40%),
+    radial-gradient(1200px 600px at 10% -10%, rgba(249, 115, 22, 0.1), transparent 50%),
+    radial-gradient(800px 400px at 90% 0%, rgba(255, 255, 255, 0.03), transparent 40%),
     var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
@@ -30,4 +33,69 @@ body {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+@layer components {
+  .field {
+    @apply rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none transition;
+  }
+  .field:focus {
+    @apply border-orange-500/60 ring-1 ring-orange-500/20;
+  }
+  .field::placeholder {
+    @apply text-zinc-500;
+  }
+  select.field {
+    @apply pr-8;
+  }
+
+  .form-panel {
+    @apply grid max-w-xl gap-3 rounded-lg border border-zinc-800 bg-[var(--panel)]/40 p-4;
+  }
+  .form-panel .field {
+    @apply w-full;
+  }
+
+  .form-row {
+    @apply flex max-w-2xl flex-wrap items-end gap-2;
+  }
+  .form-row > .grid {
+    @apply min-w-[10rem] flex-1;
+  }
+  .form-row .field {
+    @apply w-full;
+  }
+
+  .btn-primary {
+    @apply inline-flex shrink-0 items-center justify-center rounded-md bg-orange-500 px-4 py-2.5 text-sm font-medium text-black transition hover:bg-orange-400 disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex shrink-0 items-center justify-center rounded-md border border-zinc-700 px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-zinc-900 disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex shrink-0 items-center justify-center rounded-md px-4 py-2.5 text-sm font-medium text-zinc-400 transition hover:bg-zinc-900 hover:text-zinc-100 disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex shrink-0 items-center justify-center rounded-md px-4 py-2.5 text-sm font-medium text-red-400 transition hover:bg-zinc-900 disabled:opacity-50;
+  }
+
+  .data-table {
+    @apply w-full overflow-hidden rounded-lg border border-zinc-800 text-sm;
+  }
+  .data-table thead {
+    @apply bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500;
+  }
+  .data-table th {
+    @apply px-4 py-2.5 font-medium;
+  }
+  .data-table td {
+    @apply px-4 py-2.5;
+  }
+  .data-table tbody tr {
+    @apply border-t border-zinc-800/80 transition hover:bg-zinc-900/40;
+  }
+
+  .list-row {
+    @apply flex items-center justify-between gap-4 rounded-lg border border-zinc-800 px-4 py-2.5 text-sm transition hover:border-zinc-700 hover:bg-zinc-900/30;
+  }
 }

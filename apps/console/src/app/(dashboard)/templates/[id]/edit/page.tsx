@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { Field, Msg, PageHeader, SectionLabel } from "@/components/ui";
 
 type Template = {
   id: string;
@@ -104,35 +105,52 @@ export default function TemplateEditorPage() {
       <Link href="/templates" className="text-xs text-zinc-500 hover:text-zinc-300">
         ← Templates
       </Link>
-      <h1 className="mt-3 font-[family-name:var(--font-display)] text-4xl mb-6">Editor</h1>
-      <div className="mb-4 flex flex-wrap gap-2">
-        <input
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+      <div className="mt-3">
+        <PageHeader
+          title={name || "Editor"}
+          description="Edit blocks, then save or publish."
+          actions={
+            <div className="flex gap-2">
+              <button type="button" onClick={save} className="btn-secondary">
+                Save
+              </button>
+              <button type="button" onClick={publish} className="btn-primary">
+                Publish
+              </button>
+            </div>
+          }
         />
-        <input
-          className="flex-1 min-w-[12rem] rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          placeholder="Subject"
-        />
-        <button type="button" onClick={save} className="rounded-md border border-zinc-700 px-3 py-2 text-xs">
-          Save
-        </button>
-        <button type="button" onClick={publish} className="rounded-md bg-orange-500 px-3 py-2 text-xs font-medium text-black">
-          Publish
-        </button>
       </div>
-      {msg && <p className="mb-4 text-sm text-zinc-400">{msg}</p>}
 
-      <div className="mb-3 flex gap-2 text-xs">
+      <div className="mb-6 grid max-w-2xl gap-3 sm:grid-cols-2">
+        <Field label="Name" htmlFor="ed-name">
+          <input
+            id="ed-name"
+            className="field"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field label="Subject" htmlFor="ed-subject">
+          <input
+            id="ed-subject"
+            className="field"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          />
+        </Field>
+      </div>
+      <Msg>{msg}</Msg>
+
+      <div className="mb-3 flex gap-1 text-xs">
         {(["visual", "react", "html"] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`rounded px-2 py-1 ${tab === t ? "bg-zinc-800 text-orange-300" : "text-zinc-500"}`}
+            className={`rounded-md px-2.5 py-1.5 capitalize ${
+              tab === t ? "bg-zinc-800 text-orange-300" : "text-zinc-500 hover:text-zinc-300"
+            }`}
           >
             {t}
           </button>
@@ -140,13 +158,13 @@ export default function TemplateEditorPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-lg border border-zinc-800 p-4">
+        <section className="rounded-lg border border-zinc-800 bg-[var(--panel)]/40 p-4">
           {tab === "visual" && (
             <div className="space-y-3">
               {blocks.map((b, i) => (
-                <div key={i} className="grid gap-2 rounded border border-zinc-800/80 p-3">
+                <div key={i} className="grid gap-2 rounded-md border border-zinc-800/80 p-3">
                   <select
-                    className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs"
+                    className="field"
                     value={b.type}
                     onChange={(e) => {
                       const next = [...blocks];
@@ -159,7 +177,7 @@ export default function TemplateEditorPage() {
                     <option value="button">Button</option>
                   </select>
                   <input
-                    className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm"
+                    className="field"
                     value={b.text || ""}
                     onChange={(e) => {
                       const next = [...blocks];
@@ -169,7 +187,7 @@ export default function TemplateEditorPage() {
                   />
                   {b.type === "button" && (
                     <input
-                      className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs font-mono"
+                      className="field font-mono text-xs"
                       value={b.href || ""}
                       onChange={(e) => {
                         const next = [...blocks];
@@ -183,27 +201,23 @@ export default function TemplateEditorPage() {
               ))}
               <button
                 type="button"
-                className="text-xs text-zinc-400 hover:text-zinc-200"
+                className="btn-ghost text-xs"
                 onClick={() => setBlocks([...blocks, { type: "paragraph", text: "New block" }])}
               >
-                + Add block
+                Add block
               </button>
             </div>
           )}
           {tab === "react" && (
-            <pre className="overflow-auto text-xs text-zinc-300 whitespace-pre-wrap font-mono">{react}</pre>
+            <pre className="overflow-auto whitespace-pre-wrap font-mono text-xs text-zinc-300">{react}</pre>
           )}
           {tab === "html" && (
-            <textarea
-              className="min-h-80 w-full rounded border border-zinc-700 bg-zinc-950 p-3 font-mono text-xs"
-              value={html}
-              readOnly
-            />
+            <textarea className="field min-h-80 font-mono text-xs" value={html} readOnly />
           )}
         </section>
-        <section className="rounded-lg border border-zinc-800 p-4">
-          <h2 className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Preview</h2>
-          <iframe title="preview" className="w-full min-h-80 rounded border border-zinc-800 bg-white" srcDoc={html} />
+        <section className="rounded-lg border border-zinc-800 bg-[var(--panel)]/40 p-4">
+          <SectionLabel>Preview</SectionLabel>
+          <iframe title="preview" className="min-h-80 w-full rounded border border-zinc-800 bg-white" srcDoc={html} />
         </section>
       </div>
     </div>

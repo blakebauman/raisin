@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { EmptyState, Field, FormPanel, Msg, PageHeader, StatusChip } from "@/components/ui";
 
 type Email = {
   id: string;
@@ -21,7 +22,9 @@ export default function EmailsPage() {
   const [subject, setSubject] = useState("Hello from Raisin");
   const [html, setHtml] = useState("<p>It works on <strong>raisin.run</strong>.</p>");
   const [msg, setMsg] = useState("");
+  const [msgTone, setMsgTone] = useState<"muted" | "error" | "ok">("muted");
   const [loadingMore, setLoadingMore] = useState(false);
+  const [showCompose, setShowCompose] = useState(false);
 
   const load = useCallback(async (c?: string | null, append = false) => {
     const q = c ? `?cursor=${encodeURIComponent(c)}` : "";
@@ -31,7 +34,10 @@ export default function EmailsPage() {
   }, []);
 
   useEffect(() => {
-    load(null, false).catch((e) => setMsg(e.message));
+    load(null, false).catch((e) => {
+      setMsg(e.message);
+      setMsgTone("error");
+    });
   }, [load]);
 
   async function send(e: React.FormEvent) {
@@ -42,10 +48,13 @@ export default function EmailsPage() {
         method: "POST",
         body: JSON.stringify({ from, to: [to], subject, html }),
       });
-      setMsg("Queued");
+      setMsg("Queued for send");
+      setMsgTone("ok");
+      setShowCompose(false);
       await load(null, false);
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "send failed");
+      setMsgTone("error");
     }
   }
 
@@ -56,6 +65,7 @@ export default function EmailsPage() {
       await load(nextCursor, true);
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "load failed");
+      setMsgTone("error");
     } finally {
       setLoadingMore(false);
     }
@@ -63,82 +73,102 @@ export default function EmailsPage() {
 
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-8">Emails</h1>
+      <PageHeader
+        title="Emails"
+        description="Transactional sends for this team. Open a row for events, attachments, and cancel."
+        actions={
+          <button type="button" className="btn-primary" onClick={() => setShowCompose((v) => !v)}>
+            {showCompose ? "Hide compose" : "Compose"}
+          </button>
+        }
+      />
 
-      <form onSubmit={send} className="mb-10 grid gap-3 max-w-xl">
-        <input className="field" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="From" />
-        <input className="field" value={to} onChange={(e) => setTo(e.target.value)} placeholder="To" />
-        <input className="field" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Subject" />
-        <textarea className="field min-h-24 font-mono text-xs" value={html} onChange={(e) => setHtml(e.target.value)} />
-        <button type="submit" className="w-fit rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black">
-          Send email
-        </button>
-        {msg && <p className="text-sm text-zinc-400">{msg}</p>}
-      </form>
+      {showCompose && (
+        <FormPanel onSubmit={send} title="Compose">
+          <Field label="From" htmlFor="em-from">
+            <input
+              id="em-from"
+              className="field"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              required
+              autoFocus
+            />
+          </Field>
+          <Field label="To" htmlFor="em-to">
+            <input
+              id="em-to"
+              className="field"
+              type="email"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Subject" htmlFor="em-subject">
+            <input
+              id="em-subject"
+              className="field"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="HTML" htmlFor="em-html">
+            <textarea
+              id="em-html"
+              className="field min-h-24 font-mono text-xs"
+              value={html}
+              onChange={(e) => setHtml(e.target.value)}
+              required
+            />
+          </Field>
+          <button type="submit" className="btn-primary w-fit">
+            Send email
+          </button>
+        </FormPanel>
+      )}
 
-      <div className="overflow-hidden rounded-lg border border-zinc-800">
-        <table className="w-full text-sm">
-          <thead className="bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500">
-            <tr>
-              <th className="px-4 py-3">Subject</th>
-              <th className="px-4 py-3">To</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {emails.map((e) => (
-              <tr key={e.id} className="border-t border-zinc-800/80 hover:bg-zinc-900/40">
-                <td className="px-4 py-3 text-zinc-100">
-                  <Link href={`/emails/${e.id}`} className="hover:text-orange-300">
-                    {e.subject || "(no subject)"}
-                  </Link>
-                </td>
-                <td className="px-4 py-3 text-zinc-400">{e.to?.join(", ")}</td>
-                <td className="px-4 py-3">
-                  <span className="rounded bg-zinc-800 px-2 py-0.5 text-xs text-orange-300">{e.status}</span>
-                </td>
-                <td className="px-4 py-3 text-zinc-500 tabular-nums">
-                  {new Date(e.created_at).toLocaleString()}
-                </td>
-              </tr>
-            ))}
-            {emails.length === 0 && (
+      <Msg tone={msgTone}>{msg}</Msg>
+
+      {emails.length === 0 ? (
+        <EmptyState title="No emails yet" hint="Compose a send, or hit the API with your team key." />
+      ) : (
+        <div className="data-table">
+          <table className="w-full">
+            <thead>
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
-                  No emails yet
-                </td>
+                <th>Subject</th>
+                <th>To</th>
+                <th>Status</th>
+                <th>Created</th>
               </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {emails.map((e) => (
+                <tr key={e.id}>
+                  <td className="text-zinc-100">
+                    <Link href={`/emails/${e.id}`} className="hover:text-orange-300">
+                      {e.subject || "(no subject)"}
+                    </Link>
+                  </td>
+                  <td className="text-zinc-400">{e.to?.join(", ")}</td>
+                  <td>
+                    <StatusChip status={e.status} />
+                  </td>
+                  <td className="tabular-nums text-zinc-500">{new Date(e.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {nextCursor && (
-        <button
-          type="button"
-          disabled={loadingMore}
-          onClick={loadMore}
-          className="mt-4 rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
-        >
+        <button type="button" disabled={loadingMore} onClick={loadMore} className="btn-secondary mt-4">
           {loadingMore ? "Loading…" : "Load more"}
         </button>
       )}
-
-      <style jsx>{`
-        .field {
-          width: 100%;
-          border-radius: 0.375rem;
-          border: 1px solid #3f3f46;
-          background: #09090b;
-          padding: 0.625rem 0.75rem;
-          font-size: 0.875rem;
-          outline: none;
-        }
-        .field:focus {
-          border-color: rgba(249, 115, 22, 0.6);
-        }
-      `}</style>
     </div>
   );
 }

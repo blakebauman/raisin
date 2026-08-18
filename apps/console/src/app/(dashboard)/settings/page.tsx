@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { Msg, PageHeader, SectionLabel, StatusChip } from "@/components/ui";
 
 type Team = {
   id: string;
@@ -16,10 +17,11 @@ export default function SettingsPage() {
   const [usage, setUsage] = useState<any>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    apiFetch("/usage").then(setUsage).catch(console.error);
-    apiFetch<Team>("/team").then(setTeam).catch(console.error);
+    apiFetch("/usage").then(setUsage).catch((e) => setMsg(e.message));
+    apiFetch<Team>("/team").then(setTeam).catch((e) => setMsg(e.message));
   }, []);
 
   async function checkout() {
@@ -30,12 +32,15 @@ export default function SettingsPage() {
   async function toggleTestMode() {
     if (!team) return;
     setSaving(true);
+    setMsg("");
     try {
       const next = await apiFetch<Team>("/team", {
         method: "PATCH",
         body: JSON.stringify({ test_mode: !team.test_mode }),
       });
       setTeam(next);
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : "update failed");
     } finally {
       setSaving(false);
     }
@@ -43,30 +48,30 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-8">Settings</h1>
+      <PageHeader title="Settings" description="Team profile, billing, and workspace options." />
+      <Msg tone="error">{msg}</Msg>
 
-      <section className="rounded-lg border border-zinc-800 bg-[#141417]/70 p-5 max-w-lg mb-6">
-        <h2 className="text-sm font-medium text-zinc-200">Sending mode</h2>
-        <p className="mt-2 text-sm text-zinc-400">
+      <section className="mb-6 max-w-lg rounded-lg border border-zinc-800 bg-[var(--panel)]/70 p-5">
+        <SectionLabel>Sending mode</SectionLabel>
+        <p className="text-sm text-zinc-400">
           Test mode allows sends without a verified domain. Turn it off for production.
         </p>
         {team && (
           <div className="mt-4 flex items-center justify-between gap-4">
-            <div>
-              <div className="text-sm text-zinc-100">{team.name}</div>
-              <div className="text-xs text-zinc-500 mt-0.5">
-                {team.test_mode ? "Test mode on" : "Production mode"}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-zinc-100">{team.name}</span>
+                <StatusChip status={team.test_mode ? "draft" : "active"} />
+              </div>
+              <div className="mt-0.5 text-xs text-zinc-500">
+                {team.test_mode ? "Test mode on" : "Production mode"} · {team.slug}
               </div>
             </div>
             <button
               type="button"
               disabled={saving}
               onClick={toggleTestMode}
-              className={`rounded-md px-4 py-2 text-sm font-medium ${
-                team.test_mode
-                  ? "bg-zinc-700 text-zinc-100"
-                  : "bg-orange-500 text-black"
-              }`}
+              className={team.test_mode ? "btn-secondary" : "btn-primary"}
             >
               {saving ? "Saving…" : team.test_mode ? "Disable test mode" : "Enable test mode"}
             </button>
@@ -74,23 +79,22 @@ export default function SettingsPage() {
         )}
       </section>
 
-      <section className="rounded-lg border border-zinc-800 bg-[#141417]/70 p-5 max-w-lg">
-        <h2 className="text-sm font-medium text-zinc-200">Billing</h2>
+      <section className="max-w-lg rounded-lg border border-zinc-800 bg-[var(--panel)]/70 p-5">
+        <SectionLabel>Billing</SectionLabel>
         {usage && (
-          <p className="mt-2 text-sm text-zinc-400">
-            {usage.emails_sent}/{usage.quota} this period · status {usage.billing_status}
+          <p className="text-sm text-zinc-400">
+            {usage.emails_sent}/{usage.quota} this period · {usage.billing_status}
           </p>
         )}
-        <button
-          onClick={checkout}
-          className="mt-4 rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black"
-        >
+        <button type="button" onClick={checkout} className="btn-primary mt-4">
           Upgrade with Stripe
         </button>
         <p className="mt-3 text-xs text-zinc-500">Requires STRIPE_SECRET_KEY on the API.</p>
       </section>
+
       <button
-        className="mt-8 text-sm text-zinc-500 hover:text-zinc-200"
+        type="button"
+        className="btn-ghost mt-8 px-0"
         onClick={() => {
           localStorage.clear();
           window.location.href = "/login";

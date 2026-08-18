@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { EmptyState, Field, FormPanel, Msg, PageHeader, StatusChip } from "@/components/ui";
 
 type Broadcast = {
   id: string;
@@ -31,6 +32,7 @@ export default function BroadcastsPage() {
   const [scheduledAt, setScheduledAt] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   async function load() {
     const [b, s, t] = await Promise.all([
@@ -64,6 +66,7 @@ export default function BroadcastsPage() {
         }),
       });
       setMsg("Draft created");
+      setOpen(false);
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "create failed");
@@ -116,126 +119,158 @@ export default function BroadcastsPage() {
 
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-8">Broadcasts</h1>
+      <PageHeader
+        title="Broadcasts"
+        description="Schedule and send audience campaigns."
+        actions={
+          <button type="button" className="btn-primary" onClick={() => setOpen((v) => !v)}>
+            {open ? "Cancel" : "New draft"}
+          </button>
+        }
+      />
 
-      <form onSubmit={create} className="mb-10 grid gap-3 max-w-xl">
-        <input
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          placeholder="Name (optional)"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <input
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          placeholder="From"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          required
-        />
-        <input
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          placeholder="Subject"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          required
-        />
-        <select
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          value={segmentId}
-          onChange={(e) => setSegmentId(e.target.value)}
-        >
-          <option value="">All contacts</option>
-          {segments.map((s) => (
-            <option key={s.id} value={s.id}>
-              Segment: {s.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          value={topicId}
-          onChange={(e) => setTopicId(e.target.value)}
-        >
-          <option value="">No topic filter</option>
-          {topics.map((t) => (
-            <option key={t.id} value={t.id}>
-              Topic: {t.name}
-            </option>
-          ))}
-        </select>
-        <label className="grid gap-1 text-xs text-zinc-500">
-          Schedule (optional)
-          <input
-            type="datetime-local"
-            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-            value={scheduledAt}
-            onChange={(e) => setScheduledAt(e.target.value)}
-          />
-        </label>
-        <textarea
-          className="min-h-24 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs"
-          value={html}
-          onChange={(e) => setHtml(e.target.value)}
-        />
-        <button type="submit" className="w-fit rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black">
-          Create draft
-        </button>
-        {msg && <p className="text-sm text-zinc-400">{msg}</p>}
-      </form>
+      <Msg>{msg}</Msg>
 
-      <ul className="space-y-2">
-        {list.map((b) => (
-          <li
-            key={b.id}
-            className="flex items-center justify-between gap-4 rounded-lg border border-zinc-800 px-4 py-3 text-sm"
-          >
-            <div>
-              <div className="text-zinc-100">{b.subject}</div>
-              <div className="text-xs text-zinc-500 mt-0.5">
-                {b.status}
-                {typeof b.sent_count === "number" || typeof b.failed_count === "number"
-                  ? ` · ${b.sent_count ?? 0} sent / ${b.failed_count ?? 0} failed`
-                  : ""}
-                {b.scheduled_at ? ` · at ${new Date(b.scheduled_at).toLocaleString()}` : ""}
-                {b.name ? ` · ${b.name}` : ""}
-                {b.topic_id ? " · topic" : ""}
-                {b.segment_id ? " · segment" : b.topic_id ? "" : " · all contacts"}
-              </div>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              {(b.status === "draft" || b.status === "scheduled") && (
-                <button
-                  type="button"
-                  disabled={busy === b.id}
-                  onClick={() => send(b.id, b.status === "scheduled")}
-                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-50"
-                >
-                  {busy === b.id ? "Sending…" : b.status === "scheduled" ? "Send now" : "Send"}
-                </button>
-              )}
-              {(b.status === "draft" || b.status === "queued" || b.status === "scheduled" || b.status === "sending") && (
-                <button
-                  type="button"
-                  disabled={busy === b.id}
-                  onClick={() => cancel(b.id)}
-                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={busy === b.id}
-                onClick={() => remove(b.id)}
-                className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs text-red-400 hover:bg-zinc-900 disabled:opacity-50"
+      {open && (
+        <FormPanel onSubmit={create} title="New broadcast">
+          <Field label="Name" htmlFor="bc-name" hint="Optional internal label.">
+            <input
+              id="bc-name"
+              className="field"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </Field>
+          <Field label="From" htmlFor="bc-from">
+            <input
+              id="bc-from"
+              className="field"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Subject" htmlFor="bc-subject">
+            <input
+              id="bc-subject"
+              className="field"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              required
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Audience" htmlFor="bc-segment">
+              <select
+                id="bc-segment"
+                className="field"
+                value={segmentId}
+                onChange={(e) => setSegmentId(e.target.value)}
               >
-                Delete
-              </button>
-            </div>
-          </li>
-        ))}
-        {list.length === 0 && <p className="text-sm text-zinc-500">No broadcasts yet.</p>}
-      </ul>
+                <option value="">All contacts</option>
+                {segments.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Topic filter" htmlFor="bc-topic">
+              <select
+                id="bc-topic"
+                className="field"
+                value={topicId}
+                onChange={(e) => setTopicId(e.target.value)}
+              >
+                <option value="">None</option>
+                {topics.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <Field label="Schedule" htmlFor="bc-when" hint="Leave empty to keep as a draft until you send.">
+            <input
+              id="bc-when"
+              type="datetime-local"
+              className="field"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+            />
+          </Field>
+          <Field label="HTML" htmlFor="bc-html">
+            <textarea
+              id="bc-html"
+              className="field min-h-24 font-mono text-xs"
+              value={html}
+              onChange={(e) => setHtml(e.target.value)}
+              required
+            />
+          </Field>
+          <button type="submit" className="btn-primary w-fit">
+            Create draft
+          </button>
+        </FormPanel>
+      )}
+
+      {list.length === 0 ? (
+        <EmptyState title="No broadcasts yet" hint="Create a draft, then send or schedule it." />
+      ) : (
+        <ul className="space-y-2">
+          {list.map((b) => (
+            <li key={b.id} className="list-row">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-zinc-100">{b.subject}</span>
+                  <StatusChip status={b.status} />
+                </div>
+                <div className="mt-0.5 text-xs text-zinc-500">
+                  {typeof b.sent_count === "number" || typeof b.failed_count === "number"
+                    ? `${b.sent_count ?? 0} sent / ${b.failed_count ?? 0} failed`
+                    : ""}
+                  {b.scheduled_at ? ` · at ${new Date(b.scheduled_at).toLocaleString()}` : ""}
+                  {b.name ? ` · ${b.name}` : ""}
+                  {b.topic_id ? " · topic" : ""}
+                  {b.segment_id ? " · segment" : b.topic_id ? "" : " · all contacts"}
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                {(b.status === "draft" || b.status === "scheduled") && (
+                  <button
+                    type="button"
+                    disabled={busy === b.id}
+                    onClick={() => send(b.id, b.status === "scheduled")}
+                    className="btn-secondary text-xs"
+                  >
+                    {busy === b.id ? "Sending…" : b.status === "scheduled" ? "Send now" : "Send"}
+                  </button>
+                )}
+                {(b.status === "draft" || b.status === "queued" || b.status === "scheduled" || b.status === "sending") && (
+                  <button
+                    type="button"
+                    disabled={busy === b.id}
+                    onClick={() => cancel(b.id)}
+                    className="btn-secondary text-xs"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={busy === b.id}
+                  onClick={() => remove(b.id)}
+                  className="btn-danger text-xs"
+                >
+                  Delete
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

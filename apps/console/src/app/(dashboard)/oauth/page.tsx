@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import {
+  EmptyState,
+  Field,
+  FormPanel,
+  Msg,
+  PageHeader,
+  SecretCallout,
+} from "@/components/ui";
 
 type OAuthApp = {
   id: string;
@@ -15,9 +23,10 @@ type OAuthApp = {
 export default function OAuthAppsPage() {
   const [list, setList] = useState<OAuthApp[]>([]);
   const [name, setName] = useState("");
-  const [redirect, setRedirect] = useState("http://localhost:3000/oauth/callback");
+  const [redirect, setRedirect] = useState("http://localhost:3001/oauth/callback");
   const [createdSecret, setCreatedSecret] = useState("");
   const [msg, setMsg] = useState("");
+  const [open, setOpen] = useState(false);
 
   async function load() {
     const res = await apiFetch<{ data: OAuthApp[] }>("/oauth/apps");
@@ -38,6 +47,7 @@ export default function OAuthAppsPage() {
       });
       if (app.client_secret) setCreatedSecret(app.client_secret);
       setName("");
+      setOpen(false);
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "failed");
@@ -51,59 +61,74 @@ export default function OAuthAppsPage() {
 
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-8">OAuth Apps</h1>
-      <p className="text-sm text-zinc-500 mb-6 max-w-xl">
-        Third-party apps authorize against Raisin with scoped access tokens (`ra_atk_…`).
-      </p>
-      <form onSubmit={create} className="mb-8 grid gap-2 max-w-xl">
-        <input
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          placeholder="App name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-        <input
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-          placeholder="Redirect URI"
-          value={redirect}
-          onChange={(e) => setRedirect(e.target.value)}
-          required
-        />
-        <button type="submit" className="w-fit rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black">
-          Create app
-        </button>
-      </form>
+      <PageHeader
+        title="OAuth Apps"
+        description="Third-party apps authorize against Raisin with scoped access tokens."
+        actions={
+          <button type="button" className="btn-primary" onClick={() => setOpen((v) => !v)}>
+            {open ? "Cancel" : "Create app"}
+          </button>
+        }
+      />
+
+      {open && (
+        <FormPanel onSubmit={create} title="New OAuth app">
+          <Field label="App name" htmlFor="oauth-name">
+            <input
+              id="oauth-name"
+              className="field"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              autoFocus
+            />
+          </Field>
+          <Field label="Redirect URI" htmlFor="oauth-redirect" hint="Must match the URI used in the authorize request.">
+            <input
+              id="oauth-redirect"
+              className="field"
+              value={redirect}
+              onChange={(e) => setRedirect(e.target.value)}
+              required
+            />
+          </Field>
+          <button type="submit" className="btn-primary w-fit">
+            Create app
+          </button>
+        </FormPanel>
+      )}
+
       {createdSecret && (
-        <div className="mb-6 rounded-md border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm max-w-xl">
-          Client secret (shown once): <code className="font-mono text-orange-300 break-all">{createdSecret}</code>
+        <SecretCallout>
+          Client secret (shown once):{" "}
+          <code className="break-all font-mono text-orange-300">{createdSecret}</code>
           <div className="mt-2 text-xs text-zinc-400">
             Consent URL:{" "}
-            <code className="font-mono">
-              /oauth/authorize?client_id=…&redirect_uri=…
-            </code>
+            <code className="font-mono">/oauth/authorize?client_id=…&redirect_uri=…</code>
           </div>
-        </div>
+        </SecretCallout>
       )}
-      {msg && <p className="mb-4 text-sm text-red-400">{msg}</p>}
-      <ul className="space-y-2">
-        {list.map((a) => (
-          <li key={a.id} className="rounded-lg border border-zinc-800 px-4 py-3 text-sm flex justify-between gap-4">
-            <div>
-              <div className="text-zinc-100">{a.name}</div>
-              <div className="text-xs font-mono text-zinc-500 mt-1 break-all">{a.client_id}</div>
-              <div className="text-xs text-zinc-600 mt-1">{(a.redirect_uris || []).join(", ")}</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => remove(a.id)}
-              className="h-fit rounded-md border border-zinc-700 px-2 py-1 text-xs text-red-400"
-            >
-              Delete
-            </button>
-          </li>
-        ))}
-      </ul>
+
+      <Msg tone="error">{msg}</Msg>
+
+      {list.length === 0 ? (
+        <EmptyState title="No OAuth apps" hint="Create an app when a third party needs scoped team access." />
+      ) : (
+        <ul className="space-y-2">
+          {list.map((a) => (
+            <li key={a.id} className="list-row items-start">
+              <div className="min-w-0">
+                <div className="text-zinc-100">{a.name}</div>
+                <div className="mt-1 break-all font-mono text-xs text-zinc-500">{a.client_id}</div>
+                <div className="mt-1 text-xs text-zinc-600">{(a.redirect_uris || []).join(", ")}</div>
+              </div>
+              <button type="button" onClick={() => remove(a.id)} className="btn-danger text-xs">
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
+import { Msg, PageHeader, SectionLabel } from "@/components/ui";
 
 type PublicApp = {
   name: string;
@@ -68,30 +69,33 @@ export default function OAuthAuthorizePage() {
 
   return (
     <div className="max-w-lg">
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-4">Authorize</h1>
-      <p className="text-sm text-zinc-400 mb-6">
-        <span className="text-zinc-100">{app.name}</span> wants access to your Raisin team.
-      </p>
-      <div className="rounded-lg border border-zinc-800 p-4 mb-6">
-        <div className="text-xs uppercase tracking-wider text-zinc-500 mb-2">Scopes</div>
-        <ul className="space-y-1 text-sm text-zinc-300 font-mono">
+      <PageHeader
+        title="Authorize"
+        description={`${app.name} wants access to your Raisin team.`}
+      />
+
+      <div className="mb-6 rounded-lg border border-zinc-800 bg-[var(--panel)]/50 p-4">
+        <SectionLabel>Scopes</SectionLabel>
+        <ul className="space-y-1 font-mono text-sm text-zinc-300">
           {requestedScopes.map((s) => (
             <li key={s}>{s}</li>
           ))}
         </ul>
-        <div className="mt-4 text-xs text-zinc-500 break-all">Redirect: {redirectURI}</div>
+        <div className="mt-4 break-all text-xs text-zinc-500">Redirect: {redirectURI}</div>
       </div>
-      {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+
+      <Msg tone="error">{error}</Msg>
+
       <div className="flex gap-2">
         <button
           type="button"
           disabled={busy || !redirectURI}
           onClick={approve}
-          className="rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+          className="btn-primary"
         >
-          {busy ? "Redirecting…" : "Allow"}
+          {busy ? "Redirecting…" : "Allow access"}
         </button>
-        <a href="/oauth" className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-300">
+        <a href="/oauth" className="btn-secondary">
           Cancel
         </a>
       </div>

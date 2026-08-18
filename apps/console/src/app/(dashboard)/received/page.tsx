@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { EmptyState, PageHeader } from "@/components/ui";
 
 export default function ReceivedPage() {
   const [list, setList] = useState<any[]>([]);
@@ -16,11 +17,13 @@ export default function ReceivedPage() {
 
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-2">Received</h1>
-      <p className="text-sm text-zinc-500 mb-8">Inbound mail via SES receipt → Raisin</p>
+      <PageHeader title="Received" description="Inbound mail captured for your domains via SES receipt." />
       {error && <p className="text-sm text-red-400 mb-4">{error}</p>}
-      <div className="overflow-hidden rounded-lg border border-zinc-800">
-        <table className="w-full text-sm">
+      {list.length === 0 && !error ? (
+        <EmptyState title="No inbound mail" hint="Forward or send to a verified receiving domain." />
+      ) : (
+      <div className="data-table">
+        <table className="w-full">
           <thead className="bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500">
             <tr>
               <th className="px-4 py-3">From</th>
@@ -48,16 +51,10 @@ export default function ReceivedPage() {
                 </td>
               </tr>
             ))}
-            {list.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-zinc-500">
-                  No inbound mail yet
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import {
+  EmptyState,
+  Field,
+  FormPanel,
+  Msg,
+  PageHeader,
+  StatusChip,
+} from "@/components/ui";
 
 export default function TemplatesPage() {
   const [list, setList] = useState<any[]>([]);
@@ -10,6 +18,7 @@ export default function TemplatesPage() {
   const [html, setHtml] = useState("<p>Hi {{name}}, welcome.</p>");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   async function load() {
     const res = await apiFetch<{ data: any[] }>("/templates");
@@ -27,6 +36,7 @@ export default function TemplatesPage() {
         method: "POST",
         body: JSON.stringify({ name, subject, html }),
       });
+      setOpen(false);
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "create failed");
@@ -61,49 +71,93 @@ export default function TemplatesPage() {
 
   return (
     <div>
-      <h1 className="font-[family-name:var(--font-display)] text-4xl mb-8">Templates</h1>
-      <form onSubmit={create} className="mb-8 grid gap-2 max-w-xl">
-        <input className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" value={name} onChange={(e) => setName(e.target.value)} />
-        <input className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm" value={subject} onChange={(e) => setSubject(e.target.value)} />
-        <textarea className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-mono min-h-24" value={html} onChange={(e) => setHtml(e.target.value)} />
-        <button type="submit" className="w-fit rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black">
-          Create
-        </button>
-        {msg && <p className="text-sm text-zinc-400">{msg}</p>}
-      </form>
-      <ul className="space-y-2">
-        {list.map((t) => (
-          <li key={t.id} className="flex items-center justify-between gap-4 rounded-lg border border-zinc-800 px-4 py-3 text-sm">
-            <div>
-              <div className="text-zinc-100">{t.name}</div>
-              <div className="text-xs text-zinc-500">{t.status}</div>
-            </div>
-            <div className="flex gap-3 shrink-0">
-              <a href={`/templates/${t.id}/edit`} className="text-xs text-zinc-300 hover:underline">
-                Edit
-              </a>
-              {t.status !== "published" && (
+      <PageHeader
+        title="Templates"
+        description="Reusable HTML for transactional and campaign mail."
+        actions={
+          <button type="button" className="btn-primary" onClick={() => setOpen((v) => !v)}>
+            {open ? "Cancel" : "New template"}
+          </button>
+        }
+      />
+
+      {open && (
+        <FormPanel onSubmit={create} title="New template">
+          <Field label="Name" htmlFor="tpl-name">
+            <input
+              id="tpl-name"
+              className="field"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              autoFocus
+            />
+          </Field>
+          <Field label="Subject" htmlFor="tpl-subject" hint="Supports {{variables}}.">
+            <input
+              id="tpl-subject"
+              className="field"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="HTML" htmlFor="tpl-html">
+            <textarea
+              id="tpl-html"
+              className="field min-h-24 font-mono text-xs"
+              value={html}
+              onChange={(e) => setHtml(e.target.value)}
+              required
+            />
+          </Field>
+          <button type="submit" className="btn-primary w-fit">
+            Create template
+          </button>
+        </FormPanel>
+      )}
+
+      <Msg>{msg}</Msg>
+
+      {list.length === 0 ? (
+        <EmptyState title="No templates yet" hint="Create a draft, then edit and publish." />
+      ) : (
+        <ul className="space-y-2">
+          {list.map((t) => (
+            <li key={t.id} className="list-row">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-zinc-100">{t.name}</span>
+                  <StatusChip status={t.status} />
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <a href={`/templates/${t.id}/edit`} className="btn-secondary text-xs">
+                  Edit
+                </a>
+                {t.status !== "published" && (
+                  <button
+                    type="button"
+                    disabled={busy === t.id}
+                    onClick={() => publish(t.id)}
+                    className="btn-secondary text-xs"
+                  >
+                    Publish
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={busy === t.id}
-                  onClick={() => publish(t.id)}
-                  className="text-xs text-orange-400 hover:underline disabled:opacity-50"
+                  onClick={() => remove(t.id)}
+                  className="btn-danger text-xs"
                 >
-                  Publish
+                  Delete
                 </button>
-              )}
-              <button
-                type="button"
-                disabled={busy === t.id}
-                onClick={() => remove(t.id)}
-                className="text-xs text-red-400 hover:underline disabled:opacity-50"
-              >
-                Delete
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
