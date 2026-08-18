@@ -271,6 +271,9 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 			SELECT c.email FROM contacts c
 			JOIN segment_members sm ON sm.contact_id = c.id
 			WHERE sm.segment_id = $1 AND c.unsubscribed = FALSE AND c.team_id = $2
+			  AND NOT EXISTS (
+			    SELECT 1 FROM suppressions s WHERE s.team_id = c.team_id AND s.email = c.email
+			  )
 		`, *segmentID, tid)
 		if err != nil {
 			return err
@@ -285,8 +288,11 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 		}
 	} else {
 		rows, err := h.Pool.Query(ctx, `
-			SELECT email FROM contacts
-			WHERE team_id = $1 AND unsubscribed = FALSE
+			SELECT c.email FROM contacts c
+			WHERE c.team_id = $1 AND c.unsubscribed = FALSE
+			  AND NOT EXISTS (
+			    SELECT 1 FROM suppressions s WHERE s.team_id = c.team_id AND s.email = c.email
+			  )
 		`, tid)
 		if err != nil {
 			return err
@@ -306,11 +312,12 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 	if err != nil {
 		return err
 	}
-	tags := map[string]string{}
+	baseTags := map[string]string{}
 	if topicID != nil {
-		tags["topic_id"] = topicID.String()
+		baseTags["topic_id"] = topicID.String()
 	}
 	for _, addr := range emails {
+		tags := h.mergeContactTags(ctx, tid, addr, baseTags)
 		_, err := emailSvc.Send(ctx, team, email.SendRequest{
 			From: from, To: []string{addr}, Subject: subject, HTML: htmlBody, Text: textBody, Tags: tags,
 		}, "")
@@ -331,6 +338,9 @@ func (h *Handlers) topicRecipientEmails(ctx context.Context, teamID, topicID uui
 		WHERE t.id = $1 AND c.team_id = $2 AND t.team_id = $2
 		  AND c.unsubscribed = FALSE
 		  AND COALESCE(ts.subscribed, t.default_subscription = 'opt_out') = TRUE
+		  AND NOT EXISTS (
+		    SELECT 1 FROM suppressions s WHERE s.team_id = c.team_id AND s.email = c.email
+		  )
 	`
 	args := []any{topicID, teamID}
 	if segmentID != nil {
@@ -355,6 +365,47 @@ func (h *Handlers) topicRecipientEmails(ctx context.Context, teamID, topicID uui
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// mergeContactTags copies base and adds contact first_name/last_name/email/properties for {{var}} merge.
+func (h *Handlers) mergeContactTags(ctx context.Context, teamID uuid.UUID, addr string, base map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range base {
+		out[k] = v
+	}
+	emailAddr := strings.ToLower(strings.TrimSpace(addr))
+	if i := strings.Index(emailAddr, "<"); i >= 0 {
+		if j := strings.Index(emailAddr, ">"); j > i {
+			emailAddr = strings.TrimSpace(emailAddr[i+1 : j])
+		}
+	}
+	out["email"] = emailAddr
+	var first, last *string
+	var props []byte
+	err := h.Pool.QueryRow(ctx, `
+		SELECT first_name, last_name, properties FROM contacts
+		WHERE team_id = $1 AND email = $2
+	`, teamID, emailAddr).Scan(&first, &last, &props)
+	if err != nil {
+		return out
+	}
+	if first != nil {
+		out["first_name"] = *first
+	}
+	if last != nil {
+		out["last_name"] = *last
+	}
+	if len(props) > 0 {
+		var m map[string]any
+		if json.Unmarshal(props, &m) == nil {
+			for k, v := range m {
+				if _, exists := out[k]; !exists {
+					out[k] = fmt.Sprint(v)
+				}
+			}
+		}
+	}
+	return out
 }
 
 func (h *Handlers) HandleDomainVerify(ctx context.Context, t *asynq.Task) error {
@@ -466,11 +517,11 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	var teamID uuid.UUID
-	var toAddrs []string
-	_ = h.Pool.QueryRow(r.Context(), `SELECT team_id, to_addrs FROM emails WHERE id = $1`, emailID).Scan(&teamID, &toAddrs)
-
 	topicParam := r.URL.Query().Get("topic")
+	if topicParam == "" {
+		_ = r.ParseForm()
+		topicParam = r.Form.Get("topic")
+	}
 	var topicID uuid.UUID
 	if topicParam != "" {
 		topicID, err = uuid.Parse(topicParam)
@@ -478,6 +529,25 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid topic", http.StatusBadRequest)
 			return
 		}
+	}
+
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		h.writeUnsubscribeConfirm(w, emailID, topicID)
+		return
+	case http.MethodPost:
+		// RFC 8058 one-click or confirm form
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var teamID uuid.UUID
+	var toAddrs []string
+	_ = h.Pool.QueryRow(r.Context(), `SELECT team_id, to_addrs FROM emails WHERE id = $1`, emailID).Scan(&teamID, &toAddrs)
+	if teamID == uuid.Nil {
+		http.NotFound(w, r)
+		return
 	}
 
 	for _, a := range toAddrs {
@@ -502,13 +572,36 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 			`, teamID, a)
 		}
 	}
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	msg := "You have been unsubscribed."
 	if topicID != uuid.Nil {
 		msg = "You have been unsubscribed from this topic."
 	}
-	_, _ = w.Write([]byte(`<html><body><h1>Unsubscribed</h1><p>` + msg + `</p></body></html>`))
+	_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><h1>Unsubscribed</h1><p>` + msg + `</p></body></html>`))
 }
+
+func (h *Handlers) writeUnsubscribeConfirm(w http.ResponseWriter, emailID, topicID uuid.UUID) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	action := "/unsubscribe/" + emailID.String()
+	topicField := ""
+	label := "Unsubscribe from all email"
+	if topicID != uuid.Nil {
+		topicField = `<input type="hidden" name="topic" value="` + topicID.String() + `">`
+		label = "Unsubscribe from this topic"
+		action += "?topic=" + url.QueryEscape(topicID.String())
+	}
+	_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><title>Unsubscribe</title></head><body>
+<h1>Confirm unsubscribe</h1>
+<p>Click the button below to confirm. Link scanners will not unsubscribe you.</p>
+<form method="POST" action="` + action + `">
+` + topicField + `
+<input type="hidden" name="List-Unsubscribe" value="One-Click">
+<button type="submit">` + label + `</button>
+</form>
+</body></html>`))
+}
+
 
 func (h *Handlers) handleTestEvent(w http.ResponseWriter, r *http.Request) {
 	// POST /test/events/{email_id}?type=email.bounced

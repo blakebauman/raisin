@@ -120,6 +120,21 @@ func (s *Service) UpdateContact(ctx context.Context, teamID, id uuid.UUID, first
 	}
 	if unsubscribed != nil {
 		_, _ = s.Pool.Exec(ctx, `UPDATE contacts SET unsubscribed = $2, updated_at = now() WHERE id = $1 AND team_id = $3`, id, *unsubscribed, teamID)
+		var emailAddr string
+		_ = s.Pool.QueryRow(ctx, `SELECT email FROM contacts WHERE id = $1 AND team_id = $2`, id, teamID).Scan(&emailAddr)
+		if emailAddr != "" {
+			if *unsubscribed {
+				_, _ = s.Pool.Exec(ctx, `
+					INSERT INTO suppressions (team_id, email, reason)
+					VALUES ($1, $2, 'unsubscribe')
+					ON CONFLICT (team_id, email) DO UPDATE SET reason = EXCLUDED.reason
+				`, teamID, emailAddr)
+			} else {
+				_, _ = s.Pool.Exec(ctx, `
+					DELETE FROM suppressions WHERE team_id = $1 AND email = $2 AND reason = 'unsubscribe'
+				`, teamID, emailAddr)
+			}
+		}
 	}
 	return s.GetContact(ctx, teamID, id)
 }

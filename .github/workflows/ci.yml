@@ -178,8 +178,8 @@ jobs:
             --set secrets.DATABASE_URL=postgres://raisin:x@db/raisin \
             --set secrets.JWT_SECRET=ci \
             --set secrets.REDIS_URL=redis://redis:6379 \
-            --set api.migrateInit.enabled=true \
-            | grep -q migrate.sh
+            --set smtp.tls.enabled=true \
+            | grep -q SMTP_TLS_CERT
 
   images:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')

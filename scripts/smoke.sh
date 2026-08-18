@@ -38,13 +38,24 @@ curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/$EMAI
 
 echo "== global unsubscribe blocks send =="
 WORKER="${WORKER_URL:-http://localhost:18081}"
-curl -sf "$WORKER/unsubscribe/$EMAIL_ID" >/dev/null
-# contact for smoke@example.com may not exist — suppression row still added via to_addrs
+# GET must not mutate (link scanners)
+curl -sf "$WORKER/unsubscribe/$EMAIL_ID" | grep -qi Confirm
+CODE_GET=$(curl -s -o /tmp/raisin-unsub-get-send.json -w "%{http_code}" -X POST "$API/emails" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{"from":"Acme <hello@acme.test>","to":["smoke@example.com"],"subject":"Still ok","html":"<p>x</p>"}')
+if [[ "$CODE_GET" != "200" ]]; then
+  echo "GET unsubscribe should not block send, got $CODE_GET" >&2
+  cat /tmp/raisin-unsub-get-send.json >&2
+  exit 1
+fi
+# POST (one-click / confirm) mutates
+curl -sf -X POST "$WORKER/unsubscribe/$EMAIL_ID" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "List-Unsubscribe=One-Click" | grep -qi Unsubscribed
 CODE=$(curl -s -o /tmp/raisin-unsub-send.json -w "%{http_code}" -X POST "$API/emails" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
   -d '{"from":"Acme <hello@acme.test>","to":["smoke@example.com"],"subject":"Blocked","html":"<p>x</p>"}')
 if [[ "$CODE" != "400" && "$CODE" != "422" ]]; then
-  # API may use 400 validation
   if ! grep -qiE 'suppression|unsubscribed' /tmp/raisin-unsub-send.json; then
     echo "expected send blocked after unsubscribe, got $CODE" >&2
     cat /tmp/raisin-unsub-send.json >&2
@@ -157,7 +168,9 @@ for e in data:
 done
 if [[ -n "${TOPIC_MAIL:-}" ]]; then
   WORKER="${WORKER_URL:-http://localhost:18081}"
-  curl -sf "$WORKER/unsubscribe/$TOPIC_MAIL?topic=$TPIC_ID" >/dev/null
+  curl -sf -X POST "$WORKER/unsubscribe/$TOPIC_MAIL?topic=$TPIC_ID" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    -d "List-Unsubscribe=One-Click" >/dev/null
   curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts/$CT_ID/topics" \
     | python3 -c "import sys,json; d=json.load(sys.stdin)['data'];
 assert any(t['topic_id']=='$TPIC_ID' and t['subscribed'] is False for t in d), d"

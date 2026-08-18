@@ -6,3 +6,7 @@ service:
   port: 2525
 ingress:
   host: smtp.raisin.run
+# Mount a TLS secret for STARTTLS (keys tls.crt / tls.key). When enabled, AUTH requires TLS.
+tls:
+  enabled: false
+  secretName: raisin-smtp-tls

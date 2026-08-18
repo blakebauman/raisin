@@ -23,6 +23,19 @@ spec:
                 name: raisin-secrets
             - configMapRef:
                 name: raisin-config
+          {{- if .Values.tls.enabled }}
+          env:
+            - name: SMTP_TLS_CERT
+              value: /etc/raisin/tls/tls.crt
+            - name: SMTP_TLS_KEY
+              value: /etc/raisin/tls/tls.key
+            - name: SMTP_ALLOW_INSECURE
+              value: "false"
+          volumeMounts:
+            - name: smtp-tls
+              mountPath: /etc/raisin/tls
+              readOnly: true
+          {{- end }}
           readinessProbe:
             tcpSocket:
               port: {{ .Values.service.port }}
@@ -44,6 +57,12 @@ spec:
               memory: 64Mi
             limits:
               memory: 256Mi
+      {{- if .Values.tls.enabled }}
+      volumes:
+        - name: smtp-tls
+          secret:
+            secretName: {{ .Values.tls.secretName | quote }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

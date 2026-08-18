@@ -88,14 +88,22 @@ func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
 	}
 
 	if mapped == "email.bounced" || mapped == "email.complained" {
-		var toAddrs []string
-		_ = p.Pool.QueryRow(ctx, `SELECT to_addrs FROM emails WHERE id = $1`, emailID).Scan(&toAddrs)
-		reason := "bounce"
-		if mapped == "email.complained" {
-			reason = "complaint"
+		shouldSuppress := mapped == "email.complained"
+		if mapped == "email.bounced" && ev.Bounce != nil {
+			// SES: Permanent vs Transient — only hard bounces join the suppression list
+			bt := strings.EqualFold(ev.Bounce.BounceType, "Permanent")
+			shouldSuppress = bt
 		}
-		for _, a := range toAddrs {
-			_, _ = p.Suppressions.Add(ctx, teamID, a, reason)
+		if shouldSuppress {
+			var toAddrs []string
+			_ = p.Pool.QueryRow(ctx, `SELECT to_addrs FROM emails WHERE id = $1`, emailID).Scan(&toAddrs)
+			reason := "bounce"
+			if mapped == "email.complained" {
+				reason = "complaint"
+			}
+			for _, a := range toAddrs {
+				_, _ = p.Suppressions.Add(ctx, teamID, a, reason)
+			}
 		}
 	}
 

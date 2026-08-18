@@ -9,6 +9,7 @@ import (
 	"github.com/blakebauman/raisin/internal/auth"
 	"github.com/blakebauman/raisin/internal/email"
 	"github.com/blakebauman/raisin/internal/jobs"
+	tmpl "github.com/blakebauman/raisin/internal/template"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 )
@@ -100,13 +101,19 @@ func (h *Handlers) HandleAutomationStep(ctx context.Context, t *asynq.Task) erro
 			_, _ = h.Pool.Exec(ctx, `UPDATE automation_runs SET status = 'failed', updated_at = now() WHERE id = $1`, runID)
 			return fmt.Errorf("automation send_email missing fields")
 		}
+		tags := map[string]string{}
+		if contactID != nil {
+			tags = h.mergeContactTags(ctx, teamID, to, tags)
+		}
+		subject = tmpl.Render(subject, tags)
+		html = tmpl.Render(html, tags)
 		if h.Emails != nil {
 			team, err := auth.LoadTeam(ctx, h.Pool, teamID)
 			if err != nil {
 				return err
 			}
 			_, err = h.Emails.Send(ctx, team, email.SendRequest{
-				From: from, To: []string{to}, Subject: subject, HTML: html,
+				From: from, To: []string{to}, Subject: subject, HTML: html, Tags: tags,
 			}, "")
 			if err != nil {
 				_, _ = h.Pool.Exec(ctx, `

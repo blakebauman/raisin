@@ -57,6 +57,9 @@ smtp:
     port: 2525
   ingress:
     host: smtp.raisin.run
+  tls:
+    enabled: false
+    secretName: raisin-smtp-tls
 
 console:
   replicaCount: 2
