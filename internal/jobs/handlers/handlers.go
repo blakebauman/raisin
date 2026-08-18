@@ -23,6 +23,7 @@ import (
 	"github.com/blakebauman/raisin/internal/sender"
 	"github.com/blakebauman/raisin/internal/storage"
 	"github.com/blakebauman/raisin/internal/tracking"
+	tmpl "github.com/blakebauman/raisin/internal/template"
 	"github.com/blakebauman/raisin/internal/webhook"
 )
 
@@ -102,26 +103,41 @@ func (h *Handlers) HandleEmailSend(ctx context.Context, t *asynq.Task) error {
 	}
 
 	if templateID != nil && htmlBody == "" {
-		var thtml, tsubj *string
-		_ = h.Pool.QueryRow(ctx, `SELECT html, subject FROM templates WHERE id = $1`, *templateID).Scan(&thtml, &tsubj)
+		var thtml, tsubj, ttext *string
+		_ = h.Pool.QueryRow(ctx, `SELECT html, subject, text FROM templates WHERE id = $1`, *templateID).Scan(&thtml, &tsubj, &ttext)
 		if thtml != nil {
 			htmlBody = *thtml
 		}
 		if tsubj != nil && subject == "" {
 			subject = *tsubj
 		}
+		if ttext != nil && textBody == "" {
+			textBody = *ttext
+		}
 	}
 
-	htmlBody = tracking.Inject(htmlBody, emailID, h.Cfg.TrackingBaseURL, openTrack, clickTrack)
 	unsubURL := fmt.Sprintf("%s/unsubscribe/%s", h.Cfg.TrackingBaseURL, emailID.String())
+	var tagVars map[string]string
 	if len(tagsJSON) > 0 {
 		var tags map[string]any
 		if json.Unmarshal(tagsJSON, &tags) == nil {
-			if tid, ok := tags["topic_id"].(string); ok && tid != "" {
-				unsubURL = fmt.Sprintf("%s?topic=%s", unsubURL, url.QueryEscape(tid))
+			tagVars = map[string]string{}
+			for k, v := range tags {
+				tagVars[k] = fmt.Sprint(v)
+				if k == "topic_id" {
+					if tid, ok := v.(string); ok && tid != "" {
+						unsubURL = fmt.Sprintf("%s?topic=%s", unsubURL, url.QueryEscape(tid))
+					}
+				}
 			}
 		}
 	}
+	if len(tagVars) > 0 {
+		subject = tmpl.Render(subject, tagVars)
+		htmlBody = tmpl.Render(htmlBody, tagVars)
+		textBody = tmpl.Render(textBody, tagVars)
+	}
+	htmlBody = tracking.Inject(htmlBody, emailID, h.Cfg.TrackingBaseURL, openTrack, clickTrack)
 	headers := map[string]string{
 		"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubURL),
 		"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -478,6 +494,11 @@ func (h *Handlers) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 			_, _ = h.Pool.Exec(r.Context(), `
 				UPDATE contacts SET unsubscribed = TRUE, updated_at = now()
 				WHERE team_id = $1 AND email = lower($2)
+			`, teamID, a)
+			_, _ = h.Pool.Exec(r.Context(), `
+				INSERT INTO suppressions (team_id, email, reason)
+				VALUES ($1, lower($2), 'unsubscribe')
+				ON CONFLICT (team_id, email) DO UPDATE SET reason = EXCLUDED.reason
 			`, teamID, a)
 		}
 	}

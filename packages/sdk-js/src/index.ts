@@ -451,6 +451,19 @@ class Automations {
   enable(id: string, enabled: boolean) {
     return this.client.request("PATCH", `/automations/${id}`, { enabled });
   }
+  update(
+    id: string,
+    body: {
+      enabled?: boolean;
+      name?: string;
+      description?: string;
+      trigger_type?: string;
+      trigger_filter?: Record<string, unknown>;
+      steps?: { type: string; config?: Record<string, unknown> }[];
+    },
+  ) {
+    return this.client.request("PATCH", `/automations/${id}`, body);
+  }
   remove(id: string) {
     return this.client.request("DELETE", `/automations/${id}`);
   }

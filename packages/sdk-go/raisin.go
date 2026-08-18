@@ -493,6 +493,14 @@ func (s *AutomationsService) Enable(ctx context.Context, id string, enabled bool
 	return out, nil
 }
 
+func (s *AutomationsService) Update(ctx context.Context, id string, body map[string]any) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPatch, "/automations/"+id, body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *AutomationsService) ListRuns(ctx context.Context, id string) (map[string]any, error) {
 	var out map[string]any
 	if err := s.c.do(ctx, http.MethodGet, "/automations/"+id+"/runs", nil, &out); err != nil {

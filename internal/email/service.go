@@ -17,6 +17,7 @@ import (
 	"github.com/blakebauman/raisin/internal/db"
 	"github.com/blakebauman/raisin/internal/jobs"
 	"github.com/blakebauman/raisin/internal/storage"
+	"github.com/blakebauman/raisin/internal/template"
 )
 
 type Service struct {
@@ -94,15 +95,72 @@ func (s *Service) Send(ctx context.Context, team *auth.Team, req SendRequest, id
 		}
 	}
 
-	// Suppression check
+	// Suppression + global contact unsubscribed check
 	for _, addr := range append(append(req.To, req.Cc...), req.Bcc...) {
 		emailAddr := normalizeAddr(addr)
-		var exists bool
+		var suppressed bool
 		_ = s.Pool.QueryRow(ctx, `
 			SELECT EXISTS(SELECT 1 FROM suppressions WHERE team_id = $1 AND email = $2)
-		`, team.ID, emailAddr).Scan(&exists)
-		if exists {
+		`, team.ID, emailAddr).Scan(&suppressed)
+		if suppressed {
 			return nil, apierr.Validation(fmt.Sprintf("%s is on the suppression list", emailAddr))
+		}
+		var unsub bool
+		_ = s.Pool.QueryRow(ctx, `
+			SELECT EXISTS(
+				SELECT 1 FROM contacts
+				WHERE team_id = $1 AND email = $2 AND unsubscribed = TRUE
+			)
+		`, team.ID, emailAddr).Scan(&unsub)
+		if unsub {
+			return nil, apierr.Validation(fmt.Sprintf("%s is unsubscribed", emailAddr))
+		}
+	}
+
+	// Resolve published template + merge {{vars}} from tags
+	if req.TemplateID != nil {
+		var subj, html, text *string
+		var status string
+		err := s.Pool.QueryRow(ctx, `
+			SELECT subject, html, text, status FROM templates WHERE id = $1 AND team_id = $2
+		`, *req.TemplateID, team.ID).Scan(&subj, &html, &text, &status)
+		if err == pgx.ErrNoRows {
+			return nil, apierr.Validation("template not found")
+		}
+		if err != nil {
+			return nil, err
+		}
+		if status != "published" && !team.TestMode {
+			return nil, apierr.Validation("template is not published")
+		}
+		vars := req.Tags
+		if vars == nil {
+			vars = map[string]string{}
+		}
+		if req.Subject == "" && subj != nil {
+			req.Subject = template.Render(*subj, vars)
+		} else if req.Subject != "" {
+			req.Subject = template.Render(req.Subject, vars)
+		}
+		if req.HTML == "" && html != nil {
+			req.HTML = template.Render(*html, vars)
+		} else if req.HTML != "" {
+			req.HTML = template.Render(req.HTML, vars)
+		}
+		if req.Text == "" && text != nil {
+			req.Text = template.Render(*text, vars)
+		} else if req.Text != "" {
+			req.Text = template.Render(req.Text, vars)
+		}
+	} else if len(req.Tags) > 0 {
+		if req.Subject != "" {
+			req.Subject = template.Render(req.Subject, req.Tags)
+		}
+		if req.HTML != "" {
+			req.HTML = template.Render(req.HTML, req.Tags)
+		}
+		if req.Text != "" {
+			req.Text = template.Render(req.Text, req.Tags)
 		}
 	}
 

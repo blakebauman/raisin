@@ -48,6 +48,7 @@ export default function AutomationsPage() {
   const [name, setName] = useState("Welcome sequence");
   const [trigger, setTrigger] = useState("contact.created");
   const [steps, setSteps] = useState<StepDraft[]>([emptyWait(), emptySend()]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [runsFor, setRunsFor] = useState<string | null>(null);
@@ -78,19 +79,66 @@ export default function AutomationsPage() {
     });
   }
 
+  function loadIntoEditor(a: Automation) {
+    setEditingId(a.id);
+    setName(a.name);
+    setTrigger(a.trigger_type);
+    const drafts: StepDraft[] = (a.steps || []).map((st) => {
+      const cfg = (st.config || {}) as Record<string, unknown>;
+      if (st.type === "wait") {
+        return {
+          type: "wait" as const,
+          seconds: String(cfg.seconds ?? 60),
+          from: "",
+          subject: "",
+          html: "",
+        };
+      }
+      return {
+        type: "send_email" as const,
+        seconds: "",
+        from: String(cfg.from ?? ""),
+        subject: String(cfg.subject ?? ""),
+        html: String(cfg.html ?? ""),
+      };
+    });
+    setSteps(drafts.length ? drafts : [emptyWait()]);
+    setMsg(`Editing ${a.name}`);
+  }
+
+  function resetEditor() {
+    setEditingId(null);
+    setName("Welcome sequence");
+    setTrigger("contact.created");
+    setSteps([emptyWait(), emptySend()]);
+  }
+
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setMsg("");
     try {
-      await apiFetch("/automations", {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          trigger_type: trigger,
-          steps: buildStepsPayload(),
-        }),
-      });
-      setMsg("Automation created (disabled until you enable it)");
+      if (editingId) {
+        await apiFetch(`/automations/${editingId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name,
+            trigger_type: trigger,
+            steps: buildStepsPayload(),
+          }),
+        });
+        setMsg("Automation updated");
+        resetEditor();
+      } else {
+        await apiFetch("/automations", {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            trigger_type: trigger,
+            steps: buildStepsPayload(),
+          }),
+        });
+        setMsg("Automation created (disabled until you enable it)");
+      }
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "failed");
@@ -243,8 +291,17 @@ export default function AutomationsPage() {
         </div>
 
         <button type="submit" className="w-fit rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-black">
-          Create
+          {editingId ? "Save changes" : "Create"}
         </button>
+        {editingId && (
+          <button
+            type="button"
+            onClick={resetEditor}
+            className="w-fit rounded-md border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-900"
+          >
+            Cancel edit
+          </button>
+        )}
         {msg && <p className="text-sm text-zinc-400">{msg}</p>}
       </form>
       <ul className="space-y-2">
@@ -270,6 +327,14 @@ export default function AutomationsPage() {
                 )}
               </div>
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy === a.id}
+                  onClick={() => loadIntoEditor(a)}
+                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-50"
+                >
+                  Edit
+                </button>
                 <button
                   type="button"
                   disabled={busy === a.id}

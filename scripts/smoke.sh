@@ -36,6 +36,36 @@ curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/$EMAI
 echo "== events =="
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/$EMAIL_ID/events" | grep -q email.sent
 
+echo "== global unsubscribe blocks send =="
+WORKER="${WORKER_URL:-http://localhost:18081}"
+curl -sf "$WORKER/unsubscribe/$EMAIL_ID" >/dev/null
+# contact for smoke@example.com may not exist — suppression row still added via to_addrs
+CODE=$(curl -s -o /tmp/raisin-unsub-send.json -w "%{http_code}" -X POST "$API/emails" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{"from":"Acme <hello@acme.test>","to":["smoke@example.com"],"subject":"Blocked","html":"<p>x</p>"}')
+if [[ "$CODE" != "400" && "$CODE" != "422" ]]; then
+  # API may use 400 validation
+  if ! grep -qiE 'suppression|unsubscribed' /tmp/raisin-unsub-send.json; then
+    echo "expected send blocked after unsubscribe, got $CODE" >&2
+    cat /tmp/raisin-unsub-send.json >&2
+    exit 1
+  fi
+fi
+grep -qiE 'suppression|unsubscribed' /tmp/raisin-unsub-send.json
+# clean suppression so later smoke emails still work
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/suppressions" \
+  | python3 -c "
+import sys,json
+data=json.load(sys.stdin).get('data') or []
+for s in data:
+  if s.get('email')=='smoke@example.com':
+    print(s['id']); break
+" > /tmp/raisin-sp-id.txt
+SP_CLEAN=$(cat /tmp/raisin-sp-id.txt)
+if [[ -n "$SP_CLEAN" ]]; then
+  curl -sf -X DELETE "$API/suppressions/$SP_CLEAN" -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" >/dev/null
+fi
+
 echo "== domain create + verify =="
 DOM=$(curl -sf -X POST "$API/domains" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \

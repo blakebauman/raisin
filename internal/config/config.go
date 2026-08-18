@@ -12,6 +12,9 @@ type Config struct {
 	HTTPAddr            string
 	WorkerAddr          string
 	SMTPAddr            string
+	SMTPTLSCert        string
+	SMTPTLSKey         string
+	SMTPAllowInsecure   bool
 	SenderDriver        string // mailpit | ses
 	MailpitURL          string
 	JWTSecret           string
@@ -36,6 +39,9 @@ func Load() Config {
 		HTTPAddr:            getenv("HTTP_ADDR", ":8080"),
 		WorkerAddr:          getenv("WORKER_ADDR", ":8081"),
 		SMTPAddr:            getenv("SMTP_ADDR", ":2525"),
+		SMTPTLSCert:        getenv("SMTP_TLS_CERT", ""),
+		SMTPTLSKey:         getenv("SMTP_TLS_KEY", ""),
+		SMTPAllowInsecure:   getenvBool("SMTP_ALLOW_INSECURE", true),
 		SenderDriver:        strings.ToLower(getenv("SENDER_DRIVER", "mailpit")),
 		MailpitURL:          getenv("MAILPIT_URL", "http://localhost:8025"),
 		JWTSecret:           getenv("JWT_SECRET", "dev-jwt-secret-change-me-in-production"),
@@ -68,4 +74,19 @@ func getenvInt(k string, def int) int {
 		}
 	}
 	return def
+}
+
+func getenvBool(k string, def bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(k)))
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
 }

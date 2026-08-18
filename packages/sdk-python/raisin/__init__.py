@@ -277,6 +277,9 @@ class Automations:
     def enable(self, id: str, enabled: bool) -> dict:
         return self._c.request("PATCH", f"/automations/{id}", {"enabled": enabled})
 
+    def update(self, id: str, **body: Any) -> dict:
+        return self._c.request("PATCH", f"/automations/{id}", body)
+
     def runs(self, id: str) -> dict:
         return self._c.request("GET", f"/automations/{id}/runs")
 

@@ -3,6 +3,8 @@ package automation
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/blakebauman/raisin/internal/apierr"
@@ -170,30 +172,40 @@ func (s *Service) Delete(ctx context.Context, teamID, id uuid.UUID) error {
 // Trigger starts runs for all enabled automations matching triggerType for the team.
 func (s *Service) Trigger(ctx context.Context, teamID uuid.UUID, triggerType string, contactID, emailID, receivedID *uuid.UUID, contextData map[string]any) error {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id FROM automations WHERE team_id = $1 AND trigger_type = $2 AND enabled
+		SELECT id, trigger_filter FROM automations WHERE team_id = $1 AND trigger_type = $2 AND enabled
 	`, teamID, triggerType)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	var ids []uuid.UUID
+	type autoRow struct {
+		ID     uuid.UUID
+		Filter json.RawMessage
+	}
+	var autos []autoRow
 	for rows.Next() {
-		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var a autoRow
+		if err := rows.Scan(&a.ID, &a.Filter); err != nil {
 			return err
 		}
-		ids = append(ids, id)
+		autos = append(autos, a)
+	}
+	if contextData == nil {
+		contextData = map[string]any{}
 	}
 	ctxBytes, _ := json.Marshal(contextData)
 	if ctxBytes == nil {
 		ctxBytes = []byte("{}")
 	}
-	for _, autoID := range ids {
+	for _, a := range autos {
+		if !filterMatches(a.Filter, contextData) {
+			continue
+		}
 		var runID uuid.UUID
 		err := s.Pool.QueryRow(ctx, `
 			INSERT INTO automation_runs (automation_id, team_id, contact_id, email_id, received_email_id, context)
 			VALUES ($1,$2,$3,$4,$5,$6) RETURNING id
-		`, autoID, teamID, contactID, emailID, receivedID, ctxBytes).Scan(&runID)
+		`, a.ID, teamID, contactID, emailID, receivedID, ctxBytes).Scan(&runID)
 		if err != nil {
 			return err
 		}
@@ -206,6 +218,93 @@ func (s *Service) Trigger(ctx context.Context, teamID uuid.UUID, triggerType str
 		}
 	}
 	return nil
+}
+
+// filterMatches returns true when filter is empty or every filter key equals context (stringified).
+func filterMatches(filter json.RawMessage, context map[string]any) bool {
+	filter = json.RawMessage(strings.TrimSpace(string(filter)))
+	if len(filter) == 0 || string(filter) == "{}" || string(filter) == "null" {
+		return true
+	}
+	var f map[string]any
+	if err := json.Unmarshal(filter, &f); err != nil || len(f) == 0 {
+		return true
+	}
+	for k, want := range f {
+		got, ok := context[k]
+		if !ok {
+			return false
+		}
+		if fmt.Sprint(got) != fmt.Sprint(want) {
+			return false
+		}
+	}
+	return true
+}
+
+type UpdateRequest struct {
+	Name          *string         `json:"name"`
+	Description   *string         `json:"description"`
+	TriggerType   *string         `json:"trigger_type"`
+	TriggerFilter json.RawMessage `json:"trigger_filter"`
+	Enabled       *bool           `json:"enabled"`
+	Steps         []StepInput     `json:"steps"`
+}
+
+func (s *Service) Update(ctx context.Context, teamID, id uuid.UUID, req UpdateRequest) (*Automation, error) {
+	cur, err := s.Get(ctx, teamID, id)
+	if err != nil {
+		return nil, err
+	}
+	name := cur.Name
+	if req.Name != nil && *req.Name != "" {
+		name = *req.Name
+	}
+	desc := ""
+	if cur.Description != nil {
+		desc = *cur.Description
+	}
+	if req.Description != nil {
+		desc = *req.Description
+	}
+	triggerType := cur.TriggerType
+	if req.TriggerType != nil && *req.TriggerType != "" {
+		triggerType = *req.TriggerType
+	}
+	filter := cur.TriggerFilter
+	if len(req.TriggerFilter) > 0 {
+		filter = req.TriggerFilter
+	}
+	enabled := cur.Enabled
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	_, err = s.Pool.Exec(ctx, `
+		UPDATE automations SET name = $3, description = $4, trigger_type = $5, trigger_filter = $6,
+			enabled = $7, updated_at = now()
+		WHERE id = $1 AND team_id = $2
+	`, id, teamID, name, nullStr(desc), triggerType, filter, enabled)
+	if err != nil {
+		return nil, err
+	}
+	if req.Steps != nil {
+		if _, err := s.Pool.Exec(ctx, `DELETE FROM automation_steps WHERE automation_id = $1`, id); err != nil {
+			return nil, err
+		}
+		for i, st := range req.Steps {
+			cfg := st.Config
+			if len(cfg) == 0 {
+				cfg = []byte("{}")
+			}
+			if _, err := s.Pool.Exec(ctx, `
+				INSERT INTO automation_steps (automation_id, position, step_type, config)
+				VALUES ($1,$2,$3,$4)
+			`, id, i, st.Type, cfg); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return s.Get(ctx, teamID, id)
 }
 
 func (s *Service) ListRuns(ctx context.Context, teamID, automationID uuid.UUID) ([]*Run, error) {

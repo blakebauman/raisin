@@ -68,14 +68,12 @@ func (s *Server) enableAutomation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var body struct {
-		Enabled bool `json:"enabled"`
-	}
-	if err := decode(r, &body); err != nil {
+	var req automation.UpdateRequest
+	if err := decode(r, &req); err != nil {
 		apierr.Write(w, apierr.Validation("invalid json"))
 		return
 	}
-	a, err := s.Automations.SetEnabled(r.Context(), team.ID, id, body.Enabled)
+	a, err := s.Automations.Update(r.Context(), team.ID, id, req)
 	if err != nil {
 		writeErr(w, err)
 		return

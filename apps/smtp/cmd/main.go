@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"log"
 	"strings"
@@ -129,9 +130,23 @@ func main() {
 	s.ReadTimeout = 30 * time.Second
 	s.WriteTimeout = 30 * time.Second
 	s.MaxMessageBytes = 10 << 20
-	s.AllowInsecureAuth = true
+	s.AllowInsecureAuth = cfg.SMTPAllowInsecure
 
-	log.Printf("smtp listening on %s (AUTH PLAIN, password = API key)", cfg.SMTPAddr)
+	if cfg.SMTPTLSCert != "" && cfg.SMTPTLSKey != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.SMTPTLSCert, cfg.SMTPTLSKey)
+		if err != nil {
+			log.Fatalf("smtp tls: %v", err)
+		}
+		s.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+		s.AllowInsecureAuth = false
+		log.Printf("smtp listening on %s (STARTTLS, AUTH PLAIN)", cfg.SMTPAddr)
+	} else {
+		log.Printf("smtp listening on %s (AUTH PLAIN, password = API key; insecure auth=%v)", cfg.SMTPAddr, s.AllowInsecureAuth)
+	}
+
 	if err := s.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
