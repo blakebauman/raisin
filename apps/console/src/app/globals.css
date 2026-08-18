@@ -82,6 +82,25 @@ a {
   .data-table {
     @apply w-full overflow-hidden rounded-lg border border-zinc-800 text-sm;
   }
+  .data-table.log-table {
+    @apply overflow-auto;
+    scrollbar-width: thin;
+    scrollbar-color: #3f3f46 transparent;
+  }
+  .data-table.log-table::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .data-table.log-table::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .data-table.log-table::-webkit-scrollbar-thumb {
+    background: #3f3f46;
+    border-radius: 999px;
+  }
+  .data-table.log-table::-webkit-scrollbar-corner {
+    background: transparent;
+  }
   .data-table thead {
     @apply bg-zinc-900/60 text-left text-xs uppercase tracking-wider text-zinc-500;
   }
