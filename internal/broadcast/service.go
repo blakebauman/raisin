@@ -29,6 +29,8 @@ type Broadcast struct {
 	Text        *string    `json:"text"`
 	TemplateID  *uuid.UUID `json:"template_id"`
 	Status      string     `json:"status"`
+	SentCount   int        `json:"sent_count"`
+	FailedCount int        `json:"failed_count"`
 	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
 	SentAt      *time.Time `json:"sent_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
@@ -105,9 +107,13 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, req CreateReques
 func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*Broadcast, error) {
 	var b Broadcast
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, segment_id, topic_id, name, from_addr, subject, html, text, template_id, status, scheduled_at, sent_at, created_at
+		SELECT id, segment_id, topic_id, name, from_addr, subject, html, text, template_id,
+		       status, sent_count, failed_count, scheduled_at, sent_at, created_at
 		FROM broadcasts WHERE id = $1 AND team_id = $2
-	`, id, teamID).Scan(&b.ID, &b.SegmentID, &b.TopicID, &b.Name, &b.From, &b.Subject, &b.HTML, &b.Text, &b.TemplateID, &b.Status, &b.ScheduledAt, &b.SentAt, &b.CreatedAt)
+	`, id, teamID).Scan(
+		&b.ID, &b.SegmentID, &b.TopicID, &b.Name, &b.From, &b.Subject, &b.HTML, &b.Text, &b.TemplateID,
+		&b.Status, &b.SentCount, &b.FailedCount, &b.ScheduledAt, &b.SentAt, &b.CreatedAt,
+	)
 	if err == pgx.ErrNoRows {
 		return nil, apierr.NotFound
 	}
@@ -116,7 +122,8 @@ func (s *Service) Get(ctx context.Context, teamID, id uuid.UUID) (*Broadcast, er
 
 func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*Broadcast, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, segment_id, topic_id, name, from_addr, subject, html, text, template_id, status, scheduled_at, sent_at, created_at
+		SELECT id, segment_id, topic_id, name, from_addr, subject, html, text, template_id,
+		       status, sent_count, failed_count, scheduled_at, sent_at, created_at
 		FROM broadcasts WHERE team_id = $1 ORDER BY created_at DESC
 	`, teamID)
 	if err != nil {
@@ -126,7 +133,10 @@ func (s *Service) List(ctx context.Context, teamID uuid.UUID) ([]*Broadcast, err
 	var out []*Broadcast
 	for rows.Next() {
 		var b Broadcast
-		if err := rows.Scan(&b.ID, &b.SegmentID, &b.TopicID, &b.Name, &b.From, &b.Subject, &b.HTML, &b.Text, &b.TemplateID, &b.Status, &b.ScheduledAt, &b.SentAt, &b.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&b.ID, &b.SegmentID, &b.TopicID, &b.Name, &b.From, &b.Subject, &b.HTML, &b.Text, &b.TemplateID,
+			&b.Status, &b.SentCount, &b.FailedCount, &b.ScheduledAt, &b.SentAt, &b.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, &b)

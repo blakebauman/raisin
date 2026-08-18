@@ -1,0 +1,4 @@
+-- Broadcast delivery telemetry
+ALTER TABLE broadcasts
+  ADD COLUMN IF NOT EXISTS sent_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS failed_count INTEGER NOT NULL DEFAULT 0;

@@ -225,9 +225,33 @@ BC=$(curl -sf -X POST "$API/broadcasts" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
   -d "{\"from\":\"Acme <hello@acme.test>\",\"subject\":\"Smoke broadcast\",\"html\":\"<p>bc</p>\",\"name\":\"smoke-$STAMP\"}")
 BC_ID=$(echo "$BC" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo "$BC" | python3 -c "import sys,json; b=json.load(sys.stdin); assert b.get('sent_count',0)==0 and b.get('failed_count',0)==0"
 curl -sf -X POST "$API/broadcasts/$BC_ID/send" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
   -d '{}' | grep -q '"status"'
+BC_DONE=0
+for i in $(seq 1 30); do
+  BC_GET=$(curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/broadcasts/$BC_ID" || true)
+  BC_ST=$(echo "$BC_GET" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+  if [[ "$BC_ST" == "sent" || "$BC_ST" == "partial" || "$BC_ST" == "failed" ]]; then
+    echo "$BC_GET" | python3 -c "
+import sys,json
+b=json.load(sys.stdin)
+assert 'sent_count' in b and 'failed_count' in b, b
+assert isinstance(b['sent_count'], int) and isinstance(b['failed_count'], int), b
+if b['status']=='sent':
+  assert b['sent_count']>0 and b['failed_count']==0, b
+if b['status']=='failed':
+  assert b['sent_count']==0, b
+if b['status']=='partial':
+  assert b['sent_count']>0 and b['failed_count']>0, b
+"
+    BC_DONE=1
+    break
+  fi
+  sleep 0.3
+done
+[[ "$BC_DONE" == "1" ]] || { echo "broadcast did not finish"; exit 1; }
 curl -sf -X DELETE "$API/broadcasts/$BC_ID" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" \
   | grep -q '"deleted":true'

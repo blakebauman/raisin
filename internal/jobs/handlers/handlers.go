@@ -338,23 +338,36 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 		}
 		ok++
 	}
-	status := "sent"
-	switch {
-	case len(emails) == 0:
-		status = "sent"
-	case fail == 0:
-		status = "sent"
-	case ok == 0:
-		status = "failed"
-	default:
-		status = "partial"
-	}
-	if status == "sent" || status == "partial" {
-		_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = $2, sent_at = now(), updated_at = now() WHERE id = $1`, bid, status)
+	status, setSentAt := finalizeBroadcastOutcome(ok, fail)
+	if setSentAt {
+		_, _ = h.Pool.Exec(ctx, `
+			UPDATE broadcasts
+			SET status = $2, sent_count = $3, failed_count = $4, sent_at = now(), updated_at = now()
+			WHERE id = $1
+		`, bid, status, ok, fail)
 	} else {
-		_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = $2, updated_at = now() WHERE id = $1`, bid, status)
+		_, _ = h.Pool.Exec(ctx, `
+			UPDATE broadcasts
+			SET status = $2, sent_count = $3, failed_count = $4, updated_at = now()
+			WHERE id = $1
+		`, bid, status, ok, fail)
 	}
 	return nil
+}
+
+// finalizeBroadcastOutcome maps per-recipient results to broadcast status.
+// Empty audiences are failed (not sent) so telemetry stays honest.
+func finalizeBroadcastOutcome(ok, fail int) (status string, setSentAt bool) {
+	switch {
+	case ok == 0 && fail == 0:
+		return "failed", false
+	case fail == 0:
+		return "sent", true
+	case ok == 0:
+		return "failed", false
+	default:
+		return "partial", true
+	}
 }
 
 func (h *Handlers) topicRecipientEmails(ctx context.Context, teamID, topicID uuid.UUID, segmentID *uuid.UUID) ([]string, error) {

@@ -10,6 +10,8 @@ type Broadcast = {
   name?: string | null;
   segment_id?: string | null;
   topic_id?: string | null;
+  sent_count?: number;
+  failed_count?: number;
 };
 
 type Segment = { id: string; name: string };
@@ -176,6 +178,9 @@ export default function BroadcastsPage() {
               <div className="text-zinc-100">{b.subject}</div>
               <div className="text-xs text-zinc-500 mt-0.5">
                 {b.status}
+                {typeof b.sent_count === "number" || typeof b.failed_count === "number"
+                  ? ` · ${b.sent_count ?? 0} sent / ${b.failed_count ?? 0} failed`
+                  : ""}
                 {b.name ? ` · ${b.name}` : ""}
                 {b.topic_id ? " · topic" : ""}
                 {b.segment_id ? " · segment" : b.topic_id ? "" : " · all contacts"}
