@@ -1,7 +1,8 @@
-.PHONY: api worker smtp migrate tidy test console sdk-js sdk-go cli mcp smoke compose-up compose-apps compose-down helm-sync helm-sync-check
+.PHONY: api worker smtp migrate tidy test console sdk-js sdk-go cli mcp smoke seed compose-up compose-apps compose-down helm-sync helm-sync-check
 
 DATABASE_URL ?= postgres://raisin:raisin@localhost:5433/raisin?sslmode=disable
 HELM_MIG_DIR := deploy/helm/raisin/files/migrations
+CONSOLE_PORT ?= 3001
 
 api:
 	go run ./apps/api/cmd
@@ -21,6 +22,10 @@ mcp:
 migrate:
 	chmod +x scripts/migrate.sh
 	./scripts/migrate.sh migrations
+
+seed:
+	chmod +x scripts/seed-dev.sh
+	./scripts/seed-dev.sh
 
 helm-sync:
 	mkdir -p $(HELM_MIG_DIR)
@@ -44,7 +49,7 @@ smoke:
 	./scripts/smoke.sh
 
 console:
-	cd apps/console && pnpm install && pnpm dev
+	cd apps/console && pnpm install && PORT=$(CONSOLE_PORT) BETTER_AUTH_URL=http://localhost:$(CONSOLE_PORT) pnpm dev
 
 sdk-js:
 	cd packages/sdk-js && pnpm install && pnpm build

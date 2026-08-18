@@ -41,10 +41,12 @@ Or run the Go apps + console in Docker:
 make compose-apps   # docker compose --profile apps up -d --build
 ```
 
-Local ports (remapped to avoid host conflicts): API `18080`, worker/tracking `18081`, Postgres `5433`, Mailpit UI `8026`, LocalStack `4566`.
+Local ports (remapped to avoid host conflicts): API `18080`, worker/tracking `18081`, Postgres `5433`, Mailpit UI `8026`, LocalStack `4566`. Console defaults to **`3001`** via `make console` when `3000` is occupied.
 
 ```bash
 make smoke   # end-to-end API check (API+worker must be running)
+make seed    # rich demo data for UI review (contacts, emails, broadcasts, …)
+make console # Next.js on :3001 — login → “Continue with seeded demo team”
 ```
 
 Demo API key: `ra_demo_00000000000000000000000000000000`
