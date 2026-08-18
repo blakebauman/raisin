@@ -89,41 +89,65 @@ func (p *Processor) HandleSESJSON(ctx context.Context, raw []byte) error {
 	permanentBounce := mapped == "email.bounced" && ev.Bounce != nil && strings.EqualFold(ev.Bounce.BounceType, "Permanent")
 	transientBounce := mapped == "email.bounced" && ev.Bounce != nil && !strings.EqualFold(ev.Bounce.BounceType, "Permanent")
 
+	var affected []string
+	switch {
+	case mapped == "email.bounced":
+		affected = bounceRecipientEmails(ev)
+	case mapped == "email.complained":
+		affected = complaintRecipientEmails(ev)
+	}
+
 	data, _ := json.Marshal(ev)
 	_, _ = p.Pool.Exec(ctx, `
 		INSERT INTO email_events (team_id, email_id, type, data) VALUES ($1,$2,$3,$4)
 	`, teamID, emailID, mapped, data)
 
-	// Soft/transient bounces are recorded as events only — do not flip terminal status.
+	// Soft/transient bounces are events only. Permanent bounce/complaint only flip
+	// message status when every known destination was affected (no all-to_addrs guess).
 	newStatus := ""
 	if !transientBounce {
-		newStatus = statusFromEvent(mapped)
+		candidate := statusFromEvent(mapped)
+		if candidate == "bounced" || candidate == "complained" {
+			dests := normalizeEmails(ev.Mail.Destination)
+			if len(dests) == 0 {
+				var toAddrs []string
+				_ = p.Pool.QueryRow(ctx, `SELECT to_addrs FROM emails WHERE id = $1`, emailID).Scan(&toAddrs)
+				dests = normalizeEmails(toAddrs)
+			}
+			if recipientsCoverAll(affected, dests) {
+				newStatus = candidate
+			}
+		} else {
+			newStatus = candidate
+		}
 	}
-	if newStatus != "" {
+	if newStatus != "" && canTransitionStatus(status, newStatus) {
 		_, _ = p.Pool.Exec(ctx, `UPDATE emails SET status = $2, updated_at = now() WHERE id = $1`, emailID, newStatus)
 	}
 
 	if mapped == "email.complained" || permanentBounce {
 		reason := "bounce"
-		addrs := bounceRecipientEmails(ev)
 		if mapped == "email.complained" {
 			reason = "complaint"
-			addrs = complaintRecipientEmails(ev)
 		}
-		if len(addrs) == 0 {
-			// Fallback only when SES omitted recipient lists
-			_ = p.Pool.QueryRow(ctx, `SELECT to_addrs FROM emails WHERE id = $1`, emailID).Scan(&addrs)
-		}
-		for _, a := range addrs {
+		// Never fall back to all to_addrs — missing SES recipient lists means skip suppress.
+		for _, a := range affected {
 			_, _ = p.Suppressions.Add(ctx, teamID, a, reason)
 		}
 	}
 
-	_ = p.Webhooks.Fanout(ctx, teamID, mapped, map[string]any{
+	payload := map[string]any{
 		"email_id":   emailID.String(),
 		"message_id": ev.Mail.MessageID,
 		"type":       mapped,
-	})
+	}
+	if len(affected) > 0 {
+		payload["recipients"] = affected
+	}
+	if mapped == "email.bounced" && ev.Bounce != nil {
+		payload["bounce_type"] = ev.Bounce.BounceType
+	}
+	_ = p.Webhooks.Fanout(ctx, teamID, mapped, payload)
 	if p.Automations != nil {
 		_ = p.Automations.Trigger(ctx, teamID, mapped, nil, &emailID, nil, map[string]any{
 			"email_id": emailID.String(), "type": mapped,
@@ -158,6 +182,63 @@ func complaintRecipientEmails(ev SESEvent) []string {
 	return out
 }
 
+func normalizeEmails(addrs []string) []string {
+	seen := make(map[string]struct{}, len(addrs))
+	var out []string
+	for _, a := range addrs {
+		e := strings.ToLower(strings.TrimSpace(a))
+		if e == "" {
+			continue
+		}
+		if _, ok := seen[e]; ok {
+			continue
+		}
+		seen[e] = struct{}{}
+		out = append(out, e)
+	}
+	return out
+}
+
+// recipientsCoverAll is true when every destination appears in affected (case-insensitive).
+// Empty affected or destinations means unknown scope — never treat as full-message bounce.
+func recipientsCoverAll(affected, destinations []string) bool {
+	aff := normalizeEmails(affected)
+	dests := normalizeEmails(destinations)
+	if len(aff) == 0 || len(dests) == 0 {
+		return false
+	}
+	set := make(map[string]struct{}, len(aff))
+	for _, a := range aff {
+		set[a] = struct{}{}
+	}
+	for _, d := range dests {
+		if _, ok := set[d]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func isTerminalStatus(s string) bool {
+	switch s {
+	case "bounced", "complained", "failed", "suppressed", "canceled":
+		return true
+	default:
+		return false
+	}
+}
+
+// canTransitionStatus blocks delivery/sent from overwriting terminal outcomes.
+func canTransitionStatus(from, to string) bool {
+	if to == "" {
+		return false
+	}
+	if isTerminalStatus(from) && !isTerminalStatus(to) {
+		return false
+	}
+	return true
+}
+
 func (p *Processor) RecordLocalEvent(ctx context.Context, teamID, emailID uuid.UUID, eventType string, data any) error {
 	payload, _ := json.Marshal(data)
 	_, err := p.Pool.Exec(ctx, `
@@ -167,7 +248,11 @@ func (p *Processor) RecordLocalEvent(ctx context.Context, teamID, emailID uuid.U
 		return err
 	}
 	if st := statusFromEvent(eventType); st != "" {
-		_, _ = p.Pool.Exec(ctx, `UPDATE emails SET status = $2, updated_at = now() WHERE id = $1`, emailID, st)
+		var cur string
+		_ = p.Pool.QueryRow(ctx, `SELECT status FROM emails WHERE id = $1`, emailID).Scan(&cur)
+		if canTransitionStatus(cur, st) {
+			_, _ = p.Pool.Exec(ctx, `UPDATE emails SET status = $2, updated_at = now() WHERE id = $1`, emailID, st)
+		}
 	}
 	if err := p.Webhooks.Fanout(ctx, teamID, eventType, data); err != nil {
 		return err
