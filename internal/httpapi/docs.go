@@ -21,7 +21,7 @@ const docsHTML = `<!doctype html>
     <script
       id="api-reference"
       data-url="/openapi.yaml"
-      data-configuration='{"theme":"kepler","hideModels":false,"defaultHttpClient":{"targetKey":"shell","clientKey":"curl"}}'
+      data-configuration='{"theme":"kepler","hideModels":true,"defaultHttpClient":{"targetKey":"shell","clientKey":"curl"},"operationsSorter":"alpha"}'
     ></script>
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.28.11"></script>
   </body>

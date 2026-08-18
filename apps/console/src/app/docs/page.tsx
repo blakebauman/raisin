@@ -18,7 +18,8 @@ export default function DocsPage() {
       "data-configuration",
       JSON.stringify({
         theme: "kepler",
-        hideModels: false,
+        hideModels: true,
+        operationsSorter: "alpha",
         defaultHttpClient: { targetKey: "shell", clientKey: "curl" },
       })
     );

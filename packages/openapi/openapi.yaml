@@ -4,17 +4,86 @@ info:
   version: 1.0.0
   description: |
     Developer email API for raisin.run — clean REST surface powered by Amazon SES.
-    Auth: `Authorization: Bearer ra_…` and a `User-Agent` header.
+
+    **Auth:** `Authorization: Bearer ra_…` and a `User-Agent` header.
     Authenticated responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`.
-    Interactive docs: `/docs` · raw spec: `/openapi.yaml`
+
+    **Reference:** interactive docs at `/docs` · raw spec at `/openapi.yaml`.
+
+    Operations are grouped by product area (Mail, Audience, Campaigns, Platform, Account).
 servers:
   - url: https://api.raisin.run
   - url: http://localhost:18080
 security:
   - bearerAuth: []
+tags:
+  - name: Health
+    description: Liveness probe
+  - name: Documentation
+    description: OpenAPI spec and interactive reference
+  - name: Emails
+    description: Send, list, cancel, and inspect transactional email
+  - name: Received
+    description: Inbound mail received on verified domains
+  - name: Events
+    description: Live delivery event streams
+  - name: Contacts
+    description: Audience contacts and topic subscriptions
+  - name: Contact Properties
+    description: Custom property definitions for contacts
+  - name: Segments
+    description: Contact segments for targeting
+  - name: Topics
+    description: Marketing topics and defaults
+  - name: Suppressions
+    description: Bounce and complaint suppression lists
+  - name: Templates
+    description: Email templates and previews
+  - name: Broadcasts
+    description: One-to-many sends to segments or topics
+  - name: Automations
+    description: Event-driven workflows
+  - name: Domains
+    description: Sending domains, DNS, BIMI, and receiving
+  - name: IP Pools
+    description: Dedicated IPs and warmup
+  - name: Webhooks
+    description: Event delivery endpoints
+  - name: API Keys
+    description: Team API keys
+  - name: OAuth
+    description: OAuth apps and token exchange
+  - name: Team
+    description: Team profile, members, and invites
+  - name: Billing
+    description: Usage, plans, Checkout, and Customer Portal
+  - name: Logs
+    description: API request logs
+  - name: Console
+    description: Console session provisioning (internal)
+  - name: Inbound
+    description: SES inbound SNS receiver (internal)
+
+x-tagGroups:
+  - name: Getting started
+    tags: [Health, Documentation]
+  - name: Mail
+    tags: [Emails, Received, Events]
+  - name: Audience
+    tags: [Contacts, Contact Properties, Segments, Topics, Suppressions]
+  - name: Campaigns
+    tags: [Templates, Broadcasts, Automations]
+  - name: Platform
+    tags: [Domains, IP Pools, Webhooks, API Keys, OAuth]
+  - name: Account
+    tags: [Team, Billing, Logs]
+  - name: Internal
+    tags: [Console, Inbound]
+
 paths:
   /openapi.yaml:
     get:
+      tags: [Documentation]
       summary: OpenAPI 3 specification (YAML)
       operationId: getOpenAPISpec
       security: []
@@ -26,14 +95,37 @@ paths:
               schema: { type: string }
   /docs:
     get:
+      tags: [Documentation]
       summary: Interactive API reference (Scalar)
       operationId: getAPIDocs
       security: []
       responses:
         '200':
           description: HTML documentation UI
+  /events/stream:
+    get:
+      tags: [Events]
+      summary: Live email event stream (SSE)
+      operationId: streamEmailEvents
+      parameters:
+        - name: types
+          in: query
+          description: Comma-separated event types (e.g. email.delivered,email.bounced)
+          schema: { type: string }
+        - name: email_id
+          in: query
+          description: Limit stream to a single email
+          schema: { type: string, format: uuid }
+        - name: Last-Event-ID
+          in: header
+          description: Resume from a prior SSE event id
+          schema: { type: string }
+      responses:
+        '200':
+          description: text/event-stream of email events
   /emails:
     post:
+      tags: [Emails]
       summary: Send an email
       operationId: sendEmail
       parameters:
@@ -61,6 +153,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Email'
     get:
+      tags: [Emails]
       summary: List emails
       operationId: listEmails
       parameters:
@@ -82,6 +175,7 @@ paths:
                   next_cursor: { type: string }
   /emails/batch:
     post:
+      tags: [Emails]
       summary: Send up to 100 emails
       operationId: sendBatchEmails
       requestBody:
@@ -96,6 +190,7 @@ paths:
           description: OK
   /emails/{id}:
     get:
+      tags: [Emails]
       summary: Retrieve email
       operationId: getEmail
       parameters:
@@ -108,6 +203,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Email'
     patch:
+      tags: [Emails]
       summary: Update scheduled email
       operationId: updateEmail
       parameters:
@@ -117,6 +213,7 @@ paths:
           description: OK
   /emails/{id}/cancel:
     post:
+      tags: [Emails]
       summary: Cancel scheduled email
       operationId: cancelEmail
       parameters:
@@ -126,6 +223,7 @@ paths:
           description: OK
   /emails/{id}/attachments:
     get:
+      tags: [Emails]
       summary: List attachments
       operationId: listEmailAttachments
       parameters:
@@ -135,6 +233,7 @@ paths:
           description: OK
   /emails/{id}/attachments/{attachmentId}:
     get:
+      tags: [Emails]
       summary: Get attachment (base64 content)
       operationId: getEmailAttachment
       parameters:
@@ -148,6 +247,7 @@ paths:
           description: OK
   /emails/{id}/events:
     get:
+      tags: [Emails]
       summary: List email events
       operationId: listEmailEvents
       parameters:
@@ -157,6 +257,7 @@ paths:
           description: OK
   /emails/received:
     get:
+      tags: [Received]
       summary: List inbound emails
       operationId: listReceivedEmails
       responses:
@@ -164,6 +265,7 @@ paths:
           description: OK
   /emails/received/{id}:
     get:
+      tags: [Received]
       summary: Get inbound email
       operationId: getReceivedEmail
       parameters:
@@ -173,6 +275,7 @@ paths:
           description: OK
   /emails/received/{id}/attachments:
     get:
+      tags: [Received]
       summary: List received email attachments
       operationId: listReceivedAttachments
       parameters:
@@ -182,6 +285,7 @@ paths:
           description: OK
   /emails/received/{id}/attachments/{attachmentId}:
     get:
+      tags: [Received]
       summary: Download received email attachment
       operationId: getReceivedAttachment
       parameters:
@@ -195,6 +299,7 @@ paths:
           description: OK
   /emails/metrics:
     get:
+      tags: [Emails]
       summary: Email metrics
       operationId: getEmailMetrics
       responses:
@@ -202,6 +307,7 @@ paths:
           description: OK
   /domains:
     post:
+      tags: [Domains]
       summary: Create domain
       operationId: createDomain
       requestBody:
@@ -217,6 +323,7 @@ paths:
         '200':
           description: OK
     get:
+      tags: [Domains]
       summary: List domains
       operationId: listDomains
       responses:
@@ -224,6 +331,7 @@ paths:
           description: OK
   /domains/{id}:
     get:
+      tags: [Domains]
       summary: Get domain
       operationId: getDomain
       parameters:
@@ -232,6 +340,7 @@ paths:
         '200':
           description: OK
     patch:
+      tags: [Domains]
       summary: Update domain tracking
       operationId: updateDomain
       parameters:
@@ -240,6 +349,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Domains]
       summary: Delete domain
       operationId: deleteDomain
       parameters:
@@ -249,6 +359,7 @@ paths:
           description: OK
   /domains/{id}/verify:
     post:
+      tags: [Domains]
       summary: Verify domain DNS
       operationId: verifyDomain
       parameters:
@@ -258,12 +369,14 @@ paths:
           description: OK
   /api-keys:
     post:
+      tags: [API Keys]
       summary: Create API key
       operationId: createApiKey
       responses:
         '200':
           description: OK
     get:
+      tags: [API Keys]
       summary: List API keys
       operationId: listApiKeys
       responses:
@@ -271,6 +384,7 @@ paths:
           description: OK
   /api-keys/{id}:
     delete:
+      tags: [API Keys]
       summary: Delete API key
       operationId: deleteApiKey
       parameters:
@@ -280,12 +394,14 @@ paths:
           description: OK
   /webhooks:
     post:
+      tags: [Webhooks]
       summary: Create webhook
       operationId: createWebhook
       responses:
         '200':
           description: OK
     get:
+      tags: [Webhooks]
       summary: List webhooks
       operationId: listWebhooks
       responses:
@@ -293,6 +409,7 @@ paths:
           description: OK
   /webhooks/{id}:
     get:
+      tags: [Webhooks]
       summary: Get webhook
       operationId: getWebhook
       parameters:
@@ -301,6 +418,7 @@ paths:
         '200':
           description: OK
     patch:
+      tags: [Webhooks]
       summary: Update webhook
       operationId: updateWebhook
       parameters:
@@ -309,6 +427,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Webhooks]
       summary: Delete webhook
       operationId: deleteWebhook
       parameters:
@@ -318,6 +437,7 @@ paths:
           description: OK
   /webhooks/{id}/events:
     get:
+      tags: [Webhooks]
       summary: List webhook delivery events
       operationId: listWebhookEvents
       parameters:
@@ -327,6 +447,7 @@ paths:
           description: OK
   /webhooks/{id}/events/{eventId}/attempts:
     get:
+      tags: [Webhooks]
       summary: List delivery attempts for a webhook event
       operationId: listWebhookAttempts
       parameters:
@@ -340,12 +461,14 @@ paths:
           description: OK
   /team:
     get:
+      tags: [Team]
       summary: Get current team
       operationId: getTeam
       responses:
         '200':
           description: OK
     patch:
+      tags: [Team]
       summary: Update team (name, test_mode)
       operationId: updateTeam
       requestBody:
@@ -361,6 +484,7 @@ paths:
           description: OK
   /team/members:
     get:
+      tags: [Team]
       summary: List team members (console JWT)
       operationId: listTeamMembers
       responses:
@@ -368,6 +492,7 @@ paths:
           description: OK
   /team/members/{id}:
     patch:
+      tags: [Team]
       summary: Update member role (owner only)
       operationId: updateTeamMember
       parameters:
@@ -376,6 +501,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Team]
       summary: Remove a member or leave the team
       operationId: removeTeamMember
       parameters:
@@ -385,12 +511,14 @@ paths:
           description: OK
   /team/invites:
     get:
+      tags: [Team]
       summary: List pending invites (owner/admin)
       operationId: listTeamInvites
       responses:
         '200':
           description: OK
     post:
+      tags: [Team]
       summary: Create a team invite (owner/admin)
       operationId: createTeamInvite
       requestBody:
@@ -407,6 +535,7 @@ paths:
           description: Created
   /team/invites/preview:
     get:
+      tags: [Team]
       summary: Preview an invite by token (public)
       operationId: previewTeamInvite
       parameters:
@@ -419,6 +548,7 @@ paths:
           description: OK
   /team/invites/accept:
     post:
+      tags: [Team]
       summary: Accept an invite (console JWT; email must match)
       operationId: acceptTeamInvite
       requestBody:
@@ -434,6 +564,7 @@ paths:
           description: OK
   /team/invites/{id}:
     delete:
+      tags: [Team]
       summary: Revoke a pending invite
       operationId: revokeTeamInvite
       parameters:
@@ -443,12 +574,14 @@ paths:
           description: OK
   /suppressions:
     post:
+      tags: [Suppressions]
       summary: Add suppression
       operationId: addSuppression
       responses:
         '200':
           description: OK
     get:
+      tags: [Suppressions]
       summary: List suppressions
       operationId: listSuppressions
       responses:
@@ -456,6 +589,7 @@ paths:
           description: OK
   /suppressions/batch:
     post:
+      tags: [Suppressions]
       summary: Add suppressions in batch
       operationId: addSuppressionsBatch
       responses:
@@ -463,6 +597,7 @@ paths:
           description: OK
   /suppressions/{id}:
     delete:
+      tags: [Suppressions]
       summary: Remove suppression
       operationId: removeSuppression
       parameters:
@@ -472,12 +607,14 @@ paths:
           description: OK
   /contacts:
     post:
+      tags: [Contacts]
       summary: Create contact
       operationId: createContact
       responses:
         '200':
           description: OK
     get:
+      tags: [Contacts]
       summary: List contacts
       operationId: listContacts
       responses:
@@ -485,6 +622,7 @@ paths:
           description: OK
   /contacts/{id}:
     get:
+      tags: [Contacts]
       summary: Get contact
       operationId: getContact
       parameters:
@@ -493,6 +631,7 @@ paths:
         '200':
           description: OK
     patch:
+      tags: [Contacts]
       summary: Update contact
       operationId: updateContact
       parameters:
@@ -501,6 +640,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Contacts]
       summary: Delete contact
       operationId: deleteContact
       parameters:
@@ -510,6 +650,7 @@ paths:
           description: OK
   /contacts/{id}/segments/{segmentId}:
     post:
+      tags: [Contacts]
       summary: Add contact to segment
       operationId: addContactToSegment
       parameters:
@@ -522,6 +663,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Contacts]
       summary: Remove contact from segment
       operationId: removeContactFromSegment
       parameters:
@@ -535,12 +677,14 @@ paths:
           description: OK
   /contact-properties:
     post:
+      tags: [Contact Properties]
       summary: Create contact property
       operationId: createContactProperty
       responses:
         '200':
           description: OK
     get:
+      tags: [Contact Properties]
       summary: List contact properties
       operationId: listContactProperties
       responses:
@@ -548,6 +692,7 @@ paths:
           description: OK
   /contact-properties/{id}:
     delete:
+      tags: [Contact Properties]
       summary: Delete contact property
       operationId: deleteContactProperty
       parameters:
@@ -557,12 +702,14 @@ paths:
           description: OK
   /segments:
     post:
+      tags: [Segments]
       summary: Create segment
       operationId: createSegment
       responses:
         '200':
           description: OK
     get:
+      tags: [Segments]
       summary: List segments
       operationId: listSegments
       responses:
@@ -570,12 +717,14 @@ paths:
           description: OK
   /topics:
     post:
+      tags: [Topics]
       summary: Create topic
       operationId: createTopic
       responses:
         '200':
           description: OK
     get:
+      tags: [Topics]
       summary: List topics
       operationId: listTopics
       responses:
@@ -583,6 +732,7 @@ paths:
           description: OK
   /topics/{id}:
     get:
+      tags: [Topics]
       summary: Get topic
       operationId: getTopic
       parameters:
@@ -591,6 +741,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Topics]
       summary: Delete topic
       operationId: deleteTopic
       parameters:
@@ -600,6 +751,7 @@ paths:
           description: OK
   /contacts/{id}/topics:
     get:
+      tags: [Contacts]
       summary: List topic subscriptions for a contact
       operationId: listContactTopics
       parameters:
@@ -609,6 +761,7 @@ paths:
           description: OK
   /contacts/{id}/topics/{topicId}:
     put:
+      tags: [Contacts]
       summary: Set contact subscription to a topic
       operationId: setContactTopic
       parameters:
@@ -624,12 +777,14 @@ paths:
           description: OK
   /templates:
     post:
+      tags: [Templates]
       summary: Create template
       operationId: createTemplate
       responses:
         '200':
           description: OK
     get:
+      tags: [Templates]
       summary: List templates
       operationId: listTemplates
       responses:
@@ -637,6 +792,7 @@ paths:
           description: OK
   /templates/{id}:
     get:
+      tags: [Templates]
       summary: Get template
       operationId: getTemplate
       parameters:
@@ -645,6 +801,7 @@ paths:
         '200':
           description: OK
     patch:
+      tags: [Templates]
       summary: Update template
       operationId: updateTemplate
       parameters:
@@ -653,6 +810,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Templates]
       summary: Delete template
       operationId: deleteTemplate
       parameters:
@@ -662,6 +820,7 @@ paths:
           description: OK
   /templates/{id}/publish:
     post:
+      tags: [Templates]
       summary: Publish template
       operationId: publishTemplate
       parameters:
@@ -671,12 +830,14 @@ paths:
           description: OK
   /broadcasts:
     post:
+      tags: [Broadcasts]
       summary: Create broadcast
       operationId: createBroadcast
       responses:
         '200':
           description: OK
     get:
+      tags: [Broadcasts]
       summary: List broadcasts
       operationId: listBroadcasts
       responses:
@@ -684,6 +845,7 @@ paths:
           description: OK
   /broadcasts/{id}/send:
     post:
+      tags: [Broadcasts]
       summary: Send broadcast
       operationId: sendBroadcast
       parameters:
@@ -693,6 +855,7 @@ paths:
           description: OK
   /broadcasts/{id}:
     get:
+      tags: [Broadcasts]
       summary: Get broadcast
       operationId: getBroadcast
       parameters:
@@ -701,6 +864,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Broadcasts]
       summary: Delete broadcast
       operationId: deleteBroadcast
       parameters:
@@ -710,6 +874,7 @@ paths:
           description: OK
   /broadcasts/{id}/cancel:
     post:
+      tags: [Broadcasts]
       summary: Cancel broadcast
       operationId: cancelBroadcast
       parameters:
@@ -719,6 +884,7 @@ paths:
           description: OK
   /usage:
     get:
+      tags: [Billing]
       summary: Current usage
       operationId: getUsage
       responses:
@@ -726,6 +892,7 @@ paths:
           description: OK
   /billing/plans:
     get:
+      tags: [Billing]
       summary: Billing plan configuration (Price IDs present or not)
       operationId: getBillingPlans
       responses:
@@ -733,6 +900,7 @@ paths:
           description: OK
   /billing/checkout:
     post:
+      tags: [Billing]
       summary: Create Stripe Checkout session for Raisin Pro
       operationId: createCheckout
       requestBody:
@@ -749,6 +917,7 @@ paths:
           description: OK
   /billing/portal:
     post:
+      tags: [Billing]
       summary: Create Stripe Customer Portal session
       operationId: createBillingPortal
       requestBody:
@@ -763,6 +932,7 @@ paths:
           description: OK
   /billing/webhook:
     post:
+      tags: [Billing]
       summary: Stripe webhook
       security: []
       operationId: stripeWebhook
@@ -771,6 +941,7 @@ paths:
           description: OK
   /logs:
     get:
+      tags: [Logs]
       summary: API logs
       operationId: listLogs
       responses:
@@ -778,6 +949,7 @@ paths:
           description: OK
   /logs/{id}:
     get:
+      tags: [Logs]
       summary: Get API log
       operationId: getLog
       parameters:
@@ -787,6 +959,7 @@ paths:
           description: OK
   /domains/regions:
     get:
+      tags: [Domains]
       summary: List allowed SES regions
       operationId: listRegions
       responses:
@@ -794,6 +967,7 @@ paths:
           description: OK
   /domains/{id}/claim:
     post:
+      tags: [Domains]
       summary: Start domain ownership claim
       operationId: claimDomain
       parameters:
@@ -803,6 +977,7 @@ paths:
           description: OK
   /domains/{id}/claim/confirm:
     post:
+      tags: [Domains]
       summary: Confirm domain claim
       operationId: confirmClaimDomain
       parameters:
@@ -812,6 +987,7 @@ paths:
           description: OK
   /domains/{id}/claim/release:
     post:
+      tags: [Domains]
       summary: Release domain claim
       operationId: releaseClaimDomain
       parameters:
@@ -821,6 +997,7 @@ paths:
           description: OK
   /domains/{id}/bimi:
     post:
+      tags: [Domains]
       summary: Configure BIMI
       operationId: setDomainBIMI
       parameters:
@@ -840,6 +1017,7 @@ paths:
           description: OK
   /domains/{id}/receiving:
     post:
+      tags: [Domains]
       summary: Enable or disable inbound receiving
       operationId: setDomainReceiving
       parameters:
@@ -856,6 +1034,7 @@ paths:
           description: OK
   /templates/{id}/duplicate:
     post:
+      tags: [Templates]
       summary: Duplicate template
       operationId: duplicateTemplate
       parameters:
@@ -865,6 +1044,7 @@ paths:
           description: OK
   /templates/{id}/preview:
     get:
+      tags: [Templates]
       summary: Preview template HTML / react source
       operationId: previewTemplate
       parameters:
@@ -874,6 +1054,7 @@ paths:
           description: OK
   /automations:
     post:
+      tags: [Automations]
       summary: Create automation
       operationId: createAutomation
       requestBody:
@@ -897,6 +1078,7 @@ paths:
         '200':
           description: OK
     get:
+      tags: [Automations]
       summary: List automations
       operationId: listAutomations
       responses:
@@ -904,6 +1086,7 @@ paths:
           description: OK
   /automations/{id}:
     get:
+      tags: [Automations]
       summary: Get automation
       operationId: getAutomation
       parameters:
@@ -912,6 +1095,7 @@ paths:
         '200':
           description: OK
     patch:
+      tags: [Automations]
       summary: Update automation (enable, steps, trigger_filter, name)
       operationId: updateAutomation
       parameters:
@@ -938,6 +1122,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [Automations]
       summary: Delete automation
       operationId: deleteAutomation
       parameters:
@@ -947,6 +1132,7 @@ paths:
           description: OK
   /automations/{id}/runs:
     get:
+      tags: [Automations]
       summary: List automation runs
       operationId: listAutomationRuns
       parameters:
@@ -956,6 +1142,7 @@ paths:
           description: OK
   /ip-pools:
     post:
+      tags: [IP Pools]
       summary: Create dedicated IP pool
       operationId: createIPPool
       requestBody:
@@ -971,6 +1158,7 @@ paths:
         '200':
           description: OK
     get:
+      tags: [IP Pools]
       summary: List IP pools
       operationId: listIPPools
       responses:
@@ -978,6 +1166,7 @@ paths:
           description: OK
   /ip-pools/{id}:
     get:
+      tags: [IP Pools]
       summary: Get IP pool
       operationId: getIPPool
       parameters:
@@ -986,6 +1175,7 @@ paths:
         '200':
           description: OK
     delete:
+      tags: [IP Pools]
       summary: Delete IP pool
       operationId: deleteIPPool
       parameters:
@@ -995,6 +1185,7 @@ paths:
           description: OK
   /ip-pools/{id}/pause:
     post:
+      tags: [IP Pools]
       summary: Pause IP pool warmup
       operationId: pauseIPPool
       parameters:
@@ -1004,6 +1195,7 @@ paths:
           description: OK
   /ip-pools/{id}/resume:
     post:
+      tags: [IP Pools]
       summary: Resume IP pool warmup
       operationId: resumeIPPool
       parameters:
@@ -1013,6 +1205,7 @@ paths:
           description: OK
   /ip-pools/{id}/warmup/tick:
     post:
+      tags: [IP Pools]
       summary: Advance warmup day if due
       operationId: tickIPPoolWarmup
       parameters:
@@ -1022,6 +1215,7 @@ paths:
           description: OK
   /ip-pools/{id}/assign-domain:
     post:
+      tags: [IP Pools]
       summary: Assign domain to IP pool
       operationId: assignIPPoolDomain
       parameters:
@@ -1039,12 +1233,14 @@ paths:
           description: OK
   /oauth/apps:
     post:
+      tags: [OAuth]
       summary: Create OAuth app
       operationId: createOAuthApp
       responses:
         '200':
           description: OK
     get:
+      tags: [OAuth]
       summary: List OAuth apps
       operationId: listOAuthApps
       responses:
@@ -1052,6 +1248,7 @@ paths:
           description: OK
   /oauth/apps/public:
     get:
+      tags: [OAuth]
       summary: Public OAuth app metadata (consent UI)
       security: []
       operationId: oauthPublicApp
@@ -1065,6 +1262,7 @@ paths:
           description: OK
   /oauth/apps/{id}:
     delete:
+      tags: [OAuth]
       summary: Delete OAuth app
       operationId: deleteOAuthApp
       parameters:
@@ -1074,6 +1272,7 @@ paths:
           description: OK
   /oauth/authorize:
     post:
+      tags: [OAuth]
       summary: Issue authorization code (console/team JWT)
       operationId: oauthAuthorize
       responses:
@@ -1081,6 +1280,7 @@ paths:
           description: OK
   /oauth/token:
     post:
+      tags: [OAuth]
       summary: Exchange authorization code or refresh token
       security: []
       operationId: oauthToken
@@ -1089,6 +1289,7 @@ paths:
           description: OK
   /console/token:
     post:
+      tags: [Console]
       summary: Mint demo team JWT (dev)
       security: []
       operationId: consoleToken
@@ -1097,6 +1298,7 @@ paths:
           description: OK
   /console/provision:
     post:
+      tags: [Console]
       summary: Provision team JWT for console user
       security: []
       operationId: consoleProvision
@@ -1105,6 +1307,7 @@ paths:
           description: OK
   /inbound/ses:
     post:
+      tags: [Inbound]
       summary: SES inbound SNS webhook
       security: []
       operationId: inboundSes
@@ -1113,6 +1316,7 @@ paths:
           description: OK
   /health:
     get:
+      tags: [Health]
       summary: Health check
       security: []
       operationId: health
