@@ -307,7 +307,7 @@ function SettingsInner() {
             </SecretCallout>
           )}
 
-          <FormPanel onSubmit={createInvite}>
+          <FormRow onSubmit={createInvite}>
             <Field label="Email" htmlFor="invite-email" className="min-w-0 flex-1">
               <input
                 id="invite-email"
