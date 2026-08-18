@@ -107,7 +107,7 @@ func NewBroadcastSendTask(broadcastID, teamID string) (*asynq.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	return asynq.NewTask(TypeBroadcastSend, b, asynq.Queue(QueueLow), asynq.MaxRetry(3)), nil
+	return asynq.NewTask(TypeBroadcastSend, b, asynq.Queue(QueueDefault), asynq.MaxRetry(3)), nil
 }
 
 func NewScheduledBroadcastSendTask(broadcastID, teamID string, at time.Time) (*asynq.Task, error) {
@@ -116,7 +116,7 @@ func NewScheduledBroadcastSendTask(broadcastID, teamID string, at time.Time) (*a
 		return nil, err
 	}
 	return asynq.NewTask(TypeBroadcastSend, b,
-		asynq.Queue(QueueLow),
+		asynq.Queue(QueueDefault),
 		asynq.ProcessAt(at),
 		asynq.MaxRetry(3),
 	), nil

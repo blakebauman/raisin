@@ -444,6 +444,15 @@ paths:
       responses:
         '200':
           description: OK
+  /contact-properties/{id}:
+    delete:
+      summary: Delete contact property
+      operationId: deleteContactProperty
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: OK
   /segments:
     post:
       summary: Create segment

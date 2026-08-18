@@ -606,15 +606,16 @@ func (s *Server) updateContact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		FirstName    *string `json:"first_name"`
-		LastName     *string `json:"last_name"`
-		Unsubscribed *bool   `json:"unsubscribed"`
+		FirstName    *string        `json:"first_name"`
+		LastName     *string        `json:"last_name"`
+		Unsubscribed *bool          `json:"unsubscribed"`
+		Properties   map[string]any `json:"properties"`
 	}
 	if err := decode(r, &body); err != nil {
 		apierr.Write(w, apierr.Validation("invalid json"))
 		return
 	}
-	c, err := s.Audience.UpdateContact(r.Context(), team.ID, id, body.FirstName, body.LastName, body.Unsubscribed)
+	c, err := s.Audience.UpdateContact(r.Context(), team.ID, id, body.FirstName, body.LastName, body.Unsubscribed, body.Properties)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -712,6 +713,22 @@ func (s *Server) listProperties(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apierr.WriteJSON(w, 200, map[string]any{"data": list})
+}
+
+func (s *Server) deleteProperty(w http.ResponseWriter, r *http.Request) {
+	team := teamOrWrite(w, r)
+	if team == nil {
+		return
+	}
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Audience.DeleteProperty(r.Context(), team.ID, id); err != nil {
+		writeErr(w, err)
+		return
+	}
+	apierr.WriteJSON(w, 200, map[string]bool{"deleted": true})
 }
 
 func (s *Server) createSegment(w http.ResponseWriter, r *http.Request) {

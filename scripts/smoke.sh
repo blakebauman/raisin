@@ -6,6 +6,9 @@ KEY="${RAISIN_API_KEY:-ra_demo_00000000000000000000000000000000}"
 UA="raisin-smoke/0.1"
 STAMP=$(date +%s)
 
+# Best-effort: drop stale asynq jobs from prior local smoke runs (dedicated compose redis).
+redis-cli -h 127.0.0.1 -p 6379 FLUSHDB >/dev/null 2>&1 || true
+
 echo "== health =="
 curl -sf "$API/health" | grep -q ok
 
@@ -173,10 +176,22 @@ curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/emails/recei
 echo "== contact =="
 CT=$(curl -sf -X POST "$API/contacts" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
-  -d "{\"email\":\"smoke-$STAMP@example.com\",\"first_name\":\"Smoke\",\"last_name\":\"Test\"}")
+  -d "{\"email\":\"smoke-$STAMP@example.com\",\"first_name\":\"Smoke\",\"last_name\":\"Test\",\"properties\":{\"plan\":\"pro\",\"seats\":3}}")
 echo "$CT" | grep -q "smoke-$STAMP@example.com"
+echo "$CT" | python3 -c "import sys,json; p=json.load(sys.stdin).get('properties') or {}; assert p.get('plan')=='pro' and int(p.get('seats'))==3, p"
 CT_ID=$(echo "$CT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contacts/$CT_ID" | grep -q first_name
+CP=$(curl -sf -X POST "$API/contact-properties" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{"key":"Company Size","type":"number"}')
+echo "$CP" | grep -q '"key":"company_size"'
+CP_ID=$(echo "$CP" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/contact-properties" | grep -q company_size
+curl -sf -X PATCH "$API/contacts/$CT_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{"properties":{"company_size":50}}' | python3 -c "import sys,json; p=json.load(sys.stdin)['properties']; assert p.get('plan')=='pro' and int(p.get('company_size'))==50, p"
+curl -sf -X DELETE "$API/contact-properties/$CP_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" | grep -q '"deleted":true'
 
 echo "== topics =="
 TPIC=$(curl -sf -X POST "$API/topics" \
@@ -314,7 +329,7 @@ SEND_SCHED=$(curl -sf -X POST "$API/broadcasts/$BC_SCHED_ID/send" \
   -d '{}')
 echo "$SEND_SCHED" | grep -q '"status":"scheduled"'
 BC_SCHED_DONE=0
-for i in $(seq 1 40); do
+for i in $(seq 1 60); do
   ST=$(curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/broadcasts/$BC_SCHED_ID" \
     | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
   if [[ "$ST" == "sent" || "$ST" == "partial" || "$ST" == "failed" ]]; then
@@ -323,7 +338,7 @@ for i in $(seq 1 40); do
   fi
   sleep 0.5
 done
-[[ "$BC_SCHED_DONE" == "1" ]] || { echo "scheduled broadcast did not run"; exit 1; }
+[[ "$BC_SCHED_DONE" == "1" ]] || { echo "scheduled broadcast did not run (status=$ST)"; exit 1; }
 curl -sf -X DELETE "$API/broadcasts/$BC_SCHED_ID" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" >/dev/null
 

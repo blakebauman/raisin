@@ -111,12 +111,22 @@ func (s *Service) ListContacts(ctx context.Context, teamID uuid.UUID) ([]*Contac
 	return out, nil
 }
 
-func (s *Service) UpdateContact(ctx context.Context, teamID, id uuid.UUID, first, last *string, unsubscribed *bool) (*Contact, error) {
+func (s *Service) UpdateContact(ctx context.Context, teamID, id uuid.UUID, first, last *string, unsubscribed *bool, props map[string]any) (*Contact, error) {
 	if first != nil {
 		_, _ = s.Pool.Exec(ctx, `UPDATE contacts SET first_name = $2, updated_at = now() WHERE id = $1 AND team_id = $3`, id, *first, teamID)
 	}
 	if last != nil {
 		_, _ = s.Pool.Exec(ctx, `UPDATE contacts SET last_name = $2, updated_at = now() WHERE id = $1 AND team_id = $3`, id, *last, teamID)
+	}
+	if props != nil {
+		pj, _ := json.Marshal(props)
+		if pj == nil {
+			pj = []byte("{}")
+		}
+		_, _ = s.Pool.Exec(ctx, `
+			UPDATE contacts SET properties = properties || $2::jsonb, updated_at = now()
+			WHERE id = $1 AND team_id = $3
+		`, id, pj, teamID)
 	}
 	if unsubscribed != nil {
 		_, _ = s.Pool.Exec(ctx, `UPDATE contacts SET unsubscribed = $2, updated_at = now() WHERE id = $1 AND team_id = $3`, id, *unsubscribed, teamID)
@@ -393,24 +403,35 @@ func (s *Service) TopicRecipientEmails(ctx context.Context, teamID, topicID uuid
 }
 
 func (s *Service) CreateProperty(ctx context.Context, teamID uuid.UUID, key, typ string) (*ContactProperty, error) {
+	key = normalizePropertyKey(key)
 	if key == "" {
 		return nil, apierr.Validation("key is required")
 	}
 	if typ == "" {
 		typ = "string"
 	}
+	switch typ {
+	case "string", "number":
+	default:
+		return nil, apierr.Validation("type must be string or number")
+	}
 	var id uuid.UUID
 	err := s.Pool.QueryRow(ctx, `
 		INSERT INTO contact_properties (team_id, key, type) VALUES ($1,$2,$3) RETURNING id
 	`, teamID, key, typ).Scan(&id)
 	if err != nil {
+		if strings.Contains(err.Error(), "contact_properties") || strings.Contains(err.Error(), "unique") {
+			return nil, apierr.Validation("property key already exists")
+		}
 		return nil, err
 	}
 	return &ContactProperty{ID: id, Key: key, Type: typ}, nil
 }
 
 func (s *Service) ListProperties(ctx context.Context, teamID uuid.UUID) ([]*ContactProperty, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT id, key, type FROM contact_properties WHERE team_id = $1`, teamID)
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id, key, type FROM contact_properties WHERE team_id = $1 ORDER BY key
+	`, teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -424,6 +445,31 @@ func (s *Service) ListProperties(ctx context.Context, teamID uuid.UUID) ([]*Cont
 		out = append(out, &p)
 	}
 	return out, nil
+}
+
+func (s *Service) DeleteProperty(ctx context.Context, teamID, id uuid.UUID) error {
+	tag, err := s.Pool.Exec(ctx, `DELETE FROM contact_properties WHERE id = $1 AND team_id = $2`, id, teamID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apierr.NotFound
+	}
+	return nil
+}
+
+func normalizePropertyKey(s string) string {
+	s = strings.TrimSpace(strings.ToLower(s))
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '_' || r == '-' || r == ' ':
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 func (s *Service) SegmentContactIDs(ctx context.Context, segmentID uuid.UUID) ([]uuid.UUID, error) {

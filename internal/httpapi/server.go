@@ -154,6 +154,7 @@ func (s *Server) Router() http.Handler {
 		r.Route("/contact-properties", func(r chi.Router) {
 			r.Post("/", s.createProperty)
 			r.Get("/", s.listProperties)
+			r.Delete("/{id}", s.deleteProperty)
 		})
 
 		r.Route("/segments", func(r chi.Router) {

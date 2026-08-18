@@ -26,8 +26,9 @@ type Client struct {
 	Domains      *DomainsService
 	Webhooks     *WebhooksService
 	APIKeys      *APIKeysService
-	Contacts     *ContactsService
-	Topics       *TopicsService
+	Contacts          *ContactsService
+	ContactProperties *ContactPropertiesService
+	Topics            *TopicsService
 	Templates    *TemplatesService
 	Broadcasts   *BroadcastsService
 	Suppressions *SuppressionsService
@@ -47,6 +48,7 @@ func NewClient(apiKey string) *Client {
 	c.Webhooks = &WebhooksService{c: c}
 	c.APIKeys = &APIKeysService{c: c}
 	c.Contacts = &ContactsService{c: c}
+	c.ContactProperties = &ContactPropertiesService{c: c}
 	c.Topics = &TopicsService{c: c}
 	c.Templates = &TemplatesService{c: c}
 	c.Broadcasts = &BroadcastsService{c: c}
@@ -335,8 +337,9 @@ func (s *APIKeysService) List(ctx context.Context) (map[string]any, error) {
 type ContactsService struct{ c *Client }
 
 type ContactCreateOpts struct {
-	FirstName string
-	LastName  string
+	FirstName  string
+	LastName   string
+	Properties map[string]any
 }
 
 func (s *ContactsService) Create(ctx context.Context, email string, opts *ContactCreateOpts) (map[string]any, error) {
@@ -348,9 +351,20 @@ func (s *ContactsService) Create(ctx context.Context, email string, opts *Contac
 		if opts.LastName != "" {
 			body["last_name"] = opts.LastName
 		}
+		if len(opts.Properties) > 0 {
+			body["properties"] = opts.Properties
+		}
 	}
 	var out map[string]any
 	if err := s.c.do(ctx, http.MethodPost, "/contacts", body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *ContactsService) Update(ctx context.Context, id string, body map[string]any) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPatch, "/contacts/"+id, body, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -375,6 +389,36 @@ func (s *ContactsService) ListTopics(ctx context.Context, contactID string) (map
 func (s *ContactsService) SetTopic(ctx context.Context, contactID, topicID string, subscribed bool) (map[string]any, error) {
 	var out map[string]any
 	if err := s.c.do(ctx, http.MethodPut, "/contacts/"+contactID+"/topics/"+topicID, map[string]any{"subscribed": subscribed}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type ContactPropertiesService struct{ c *Client }
+
+func (s *ContactPropertiesService) Create(ctx context.Context, key, typ string) (map[string]any, error) {
+	body := map[string]any{"key": key}
+	if typ != "" {
+		body["type"] = typ
+	}
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodPost, "/contact-properties", body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *ContactPropertiesService) List(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodGet, "/contact-properties", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *ContactPropertiesService) Delete(ctx context.Context, id string) (map[string]any, error) {
+	var out map[string]any
+	if err := s.c.do(ctx, http.MethodDelete, "/contact-properties/"+id, nil, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

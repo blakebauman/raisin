@@ -58,6 +58,7 @@ export class Raisin {
   readonly apiKeys: ApiKeys;
   readonly webhooks: Webhooks;
   readonly contacts: Contacts;
+  readonly contactProperties: ContactProperties;
   readonly topics: Topics;
   readonly templates: Templates;
   readonly broadcasts: Broadcasts;
@@ -79,6 +80,7 @@ export class Raisin {
     this.apiKeys = new ApiKeys(this);
     this.webhooks = new Webhooks(this);
     this.contacts = new Contacts(this);
+    this.contactProperties = new ContactProperties(this);
     this.topics = new Topics(this);
     this.templates = new Templates(this);
     this.broadcasts = new Broadcasts(this);
@@ -343,12 +345,16 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 class Contacts {
   constructor(private client: Raisin) {}
-  create(email: string, opts?: { firstName?: string; lastName?: string }) {
+  create(email: string, opts?: { firstName?: string; lastName?: string; properties?: Record<string, unknown> }) {
     return this.client.request("POST", "/contacts", {
       email,
       first_name: opts?.firstName,
       last_name: opts?.lastName,
+      properties: opts?.properties,
     });
+  }
+  update(id: string, body: { first_name?: string; last_name?: string; unsubscribed?: boolean; properties?: Record<string, unknown> }) {
+    return this.client.request("PATCH", `/contacts/${id}`, body);
   }
   list() {
     return this.client.request("GET", "/contacts");
@@ -363,6 +369,19 @@ class Contacts {
     return this.client.request("PUT", `/contacts/${contactId}/topics/${topicId}`, {
       subscribed,
     });
+  }
+}
+
+class ContactProperties {
+  constructor(private client: Raisin) {}
+  create(key: string, type: "string" | "number" = "string") {
+    return this.client.request("POST", "/contact-properties", { key, type });
+  }
+  list() {
+    return this.client.request("GET", "/contact-properties");
+  }
+  remove(id: string) {
+    return this.client.request("DELETE", `/contact-properties/${id}`);
   }
 }
 
