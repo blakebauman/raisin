@@ -256,15 +256,28 @@ func (h *Handlers) HandleBroadcastSend(ctx context.Context, t *asynq.Task) error
 	tid, _ := uuid.Parse(p.TeamID)
 
 	var segmentID, topicID *uuid.UUID
-	var from, subject string
+	var from, subject, status string
 	var html, text *string
 	err := h.Pool.QueryRow(ctx, `
-		SELECT segment_id, topic_id, from_addr, subject, html, text FROM broadcasts WHERE id = $1 AND team_id = $2
-	`, bid, tid).Scan(&segmentID, &topicID, &from, &subject, &html, &text)
+		SELECT segment_id, topic_id, from_addr, subject, html, text, status
+		FROM broadcasts WHERE id = $1 AND team_id = $2
+	`, bid, tid).Scan(&segmentID, &topicID, &from, &subject, &html, &text, &status)
 	if err != nil {
 		return err
 	}
-	_, _ = h.Pool.Exec(ctx, `UPDATE broadcasts SET status = 'sending', updated_at = now() WHERE id = $1`, bid)
+	if status == "canceled" || status == "sent" || status == "partial" || status == "failed" {
+		return nil
+	}
+	ct, err := h.Pool.Exec(ctx, `
+		UPDATE broadcasts SET status = 'sending', updated_at = now()
+		WHERE id = $1 AND status IN ('queued','scheduled','sending')
+	`, bid)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return nil
+	}
 
 	htmlBody, textBody := "", ""
 	if html != nil {

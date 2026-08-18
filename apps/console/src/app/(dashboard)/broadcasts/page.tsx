@@ -12,6 +12,7 @@ type Broadcast = {
   topic_id?: string | null;
   sent_count?: number;
   failed_count?: number;
+  scheduled_at?: string | null;
 };
 
 type Segment = { id: string; name: string };
@@ -27,6 +28,7 @@ export default function BroadcastsPage() {
   const [name, setName] = useState("");
   const [segmentId, setSegmentId] = useState("");
   const [topicId, setTopicId] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -58,6 +60,7 @@ export default function BroadcastsPage() {
           html,
           segment_id: segmentId || undefined,
           topic_id: topicId || undefined,
+          scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
         }),
       });
       setMsg("Draft created");
@@ -67,12 +70,15 @@ export default function BroadcastsPage() {
     }
   }
 
-  async function send(id: string) {
+  async function send(id: string, immediate = false) {
     setBusy(id);
     setMsg("");
     try {
-      await apiFetch(`/broadcasts/${id}/send`, { method: "POST", body: "{}" });
-      setMsg("Send queued");
+      const res = await apiFetch<{ status: string }>(`/broadcasts/${id}/send`, {
+        method: "POST",
+        body: JSON.stringify(immediate ? { immediate: true } : {}),
+      });
+      setMsg(res.status === "scheduled" ? "Send scheduled" : "Send queued");
       await load();
     } catch (err: unknown) {
       setMsg(err instanceof Error ? err.message : "send failed");
@@ -157,6 +163,15 @@ export default function BroadcastsPage() {
             </option>
           ))}
         </select>
+        <label className="grid gap-1 text-xs text-zinc-500">
+          Schedule (optional)
+          <input
+            type="datetime-local"
+            className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+            value={scheduledAt}
+            onChange={(e) => setScheduledAt(e.target.value)}
+          />
+        </label>
         <textarea
           className="min-h-24 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-xs"
           value={html}
@@ -181,23 +196,24 @@ export default function BroadcastsPage() {
                 {typeof b.sent_count === "number" || typeof b.failed_count === "number"
                   ? ` · ${b.sent_count ?? 0} sent / ${b.failed_count ?? 0} failed`
                   : ""}
+                {b.scheduled_at ? ` · at ${new Date(b.scheduled_at).toLocaleString()}` : ""}
                 {b.name ? ` · ${b.name}` : ""}
                 {b.topic_id ? " · topic" : ""}
                 {b.segment_id ? " · segment" : b.topic_id ? "" : " · all contacts"}
               </div>
             </div>
             <div className="flex gap-2 shrink-0">
-              {b.status === "draft" && (
+              {(b.status === "draft" || b.status === "scheduled") && (
                 <button
                   type="button"
                   disabled={busy === b.id}
-                  onClick={() => send(b.id)}
+                  onClick={() => send(b.id, b.status === "scheduled")}
                   className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-900 disabled:opacity-50"
                 >
-                  {busy === b.id ? "Sending…" : "Send"}
+                  {busy === b.id ? "Sending…" : b.status === "scheduled" ? "Send now" : "Send"}
                 </button>
               )}
-              {(b.status === "draft" || b.status === "queued" || b.status === "sending") && (
+              {(b.status === "draft" || b.status === "queued" || b.status === "scheduled" || b.status === "sending") && (
                 <button
                   type="button"
                   disabled={busy === b.id}

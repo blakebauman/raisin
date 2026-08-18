@@ -434,9 +434,12 @@ func (s *BroadcastsService) Create(ctx context.Context, body map[string]any) (ma
 	return out, nil
 }
 
-func (s *BroadcastsService) Send(ctx context.Context, id string) (map[string]any, error) {
+func (s *BroadcastsService) Send(ctx context.Context, id string, body map[string]any) (map[string]any, error) {
+	if body == nil {
+		body = map[string]any{}
+	}
 	var out map[string]any
-	if err := s.c.do(ctx, http.MethodPost, "/broadcasts/"+id+"/send", map[string]any{}, &out); err != nil {
+	if err := s.c.do(ctx, http.MethodPost, "/broadcasts/"+id+"/send", body, &out); err != nil {
 		return nil, err
 	}
 	return out, nil

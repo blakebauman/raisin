@@ -408,11 +408,12 @@ class Broadcasts {
     segment_id?: string;
     topic_id?: string;
     name?: string;
+    scheduled_at?: string;
   }) {
     return this.client.request("POST", "/broadcasts", body);
   }
-  send(id: string) {
-    return this.client.request("POST", `/broadcasts/${id}/send`);
+  send(id: string, body: { scheduled_at?: string; immediate?: boolean } = {}) {
+    return this.client.request("POST", `/broadcasts/${id}/send`, body);
   }
   list() {
     return this.client.request("GET", "/broadcasts");

@@ -1057,7 +1057,19 @@ func (s *Server) sendBroadcast(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	b, err := s.Broadcasts.Send(r.Context(), team.ID, id)
+	var opts broadcast.SendOptions
+	var raw map[string]any
+	if err := decode(r, &raw); err == nil {
+		if imm, ok := raw["immediate"].(bool); ok && imm {
+			opts.Immediate = true
+		}
+		if sched, ok := raw["scheduled_at"].(string); ok && sched != "" {
+			if ts, err := time.Parse(time.RFC3339, sched); err == nil {
+				opts.ScheduledAt = &ts
+			}
+		}
+	}
+	b, err := s.Broadcasts.Send(r.Context(), team.ID, id, opts)
 	if err != nil {
 		writeErr(w, err)
 		return

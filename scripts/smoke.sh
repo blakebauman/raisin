@@ -302,6 +302,31 @@ curl -sf -X DELETE "$API/broadcasts/$BC_ID" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" \
   | grep -q '"deleted":true'
 
+echo "== scheduled broadcast =="
+SCHED_AT=$(python3 -c "from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(seconds=3)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+BC_SCHED=$(curl -sf -X POST "$API/broadcasts" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d "{\"from\":\"Acme <hello@acme.test>\",\"subject\":\"Scheduled smoke\",\"html\":\"<p>sched</p>\",\"name\":\"sched-$STAMP\",\"scheduled_at\":\"$SCHED_AT\"}")
+BC_SCHED_ID=$(echo "$BC_SCHED" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+echo "$BC_SCHED" | python3 -c "import sys,json; b=json.load(sys.stdin); assert b.get('scheduled_at'), b"
+SEND_SCHED=$(curl -sf -X POST "$API/broadcasts/$BC_SCHED_ID/send" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \
+  -d '{}')
+echo "$SEND_SCHED" | grep -q '"status":"scheduled"'
+BC_SCHED_DONE=0
+for i in $(seq 1 40); do
+  ST=$(curl -sf -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" "$API/broadcasts/$BC_SCHED_ID" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+  if [[ "$ST" == "sent" || "$ST" == "partial" || "$ST" == "failed" ]]; then
+    BC_SCHED_DONE=1
+    break
+  fi
+  sleep 0.5
+done
+[[ "$BC_SCHED_DONE" == "1" ]] || { echo "scheduled broadcast did not run"; exit 1; }
+curl -sf -X DELETE "$API/broadcasts/$BC_SCHED_ID" \
+  -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" >/dev/null
+
 echo "== automations =="
 AU=$(curl -sf -X POST "$API/automations" \
   -H "Authorization: Bearer $KEY" -H "User-Agent: $UA" -H "Content-Type: application/json" \

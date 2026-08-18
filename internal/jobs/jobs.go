@@ -110,6 +110,18 @@ func NewBroadcastSendTask(broadcastID, teamID string) (*asynq.Task, error) {
 	return asynq.NewTask(TypeBroadcastSend, b, asynq.Queue(QueueLow), asynq.MaxRetry(3)), nil
 }
 
+func NewScheduledBroadcastSendTask(broadcastID, teamID string, at time.Time) (*asynq.Task, error) {
+	b, err := json.Marshal(BroadcastSendPayload{BroadcastID: broadcastID, TeamID: teamID})
+	if err != nil {
+		return nil, err
+	}
+	return asynq.NewTask(TypeBroadcastSend, b,
+		asynq.Queue(QueueLow),
+		asynq.ProcessAt(at),
+		asynq.MaxRetry(3),
+	), nil
+}
+
 func NewDomainVerifyTask(domainID, teamID string) (*asynq.Task, error) {
 	b, err := json.Marshal(DomainVerifyPayload{DomainID: domainID, TeamID: teamID})
 	if err != nil {
