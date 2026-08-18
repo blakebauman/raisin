@@ -114,7 +114,7 @@ export default function OAuthAppsPage() {
       {list.length === 0 ? (
         <EmptyState title="No OAuth apps" hint="Create an app when a third party needs scoped team access." />
       ) : (
-        <ul className="space-y-2">
+        <ul className="border-t border-[var(--border)]">
           {list.map((a) => (
             <li key={a.id} className="list-row items-start">
               <div className="min-w-0">

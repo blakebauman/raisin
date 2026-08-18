@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import { Field, Msg, PageHeader, SectionLabel } from "@/components/ui";
+import { BackLink, Field, MailFrame, Msg, PageHeader, SectionLabel, TableSkeleton } from "@/components/ui";
 
 type Template = {
   id: string;
@@ -98,13 +97,11 @@ export default function TemplateEditorPage() {
     router.refresh();
   }
 
-  if (!tpl) return <p className="text-sm text-zinc-500">Loading…</p>;
+  if (!tpl) return <TableSkeleton rows={10} />;
 
   return (
     <div>
-      <Link href="/templates" className="text-xs text-zinc-500 hover:text-zinc-300">
-        ← Templates
-      </Link>
+      <BackLink href="/templates">Templates</BackLink>
       <div className="mt-3">
         <PageHeader
           title={name || "Editor"}
@@ -142,14 +139,14 @@ export default function TemplateEditorPage() {
       </div>
       <Msg>{msg}</Msg>
 
-      <div className="mb-3 flex gap-1 text-xs">
+      <div className="mb-3 flex gap-1 text-[13px]">
         {(["visual", "react", "html"] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`rounded-md px-2.5 py-1.5 capitalize ${
-              tab === t ? "bg-zinc-800 text-orange-300" : "text-zinc-500 hover:text-zinc-300"
+            className={`h-8 rounded-full px-3.5 capitalize ${
+              tab === t ? "bg-white/[0.06] text-zinc-50" : "text-[var(--muted)] hover:text-zinc-300"
             }`}
           >
             {t}
@@ -157,12 +154,12 @@ export default function TemplateEditorPage() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-lg border border-zinc-800 bg-[var(--panel)]/40 p-4">
+      <div className="grid gap-8 lg:grid-cols-2">
+        <section>
           {tab === "visual" && (
             <div className="space-y-3">
               {blocks.map((b, i) => (
-                <div key={i} className="grid gap-2 rounded-md border border-zinc-800/80 p-3">
+                <div key={i} className="grid gap-2 border-t border-[var(--border)] pt-3 first:border-t-0 first:pt-0">
                   <select
                     className="field"
                     value={b.type}
@@ -215,9 +212,9 @@ export default function TemplateEditorPage() {
             <textarea className="field min-h-80 font-mono text-xs" value={html} readOnly />
           )}
         </section>
-        <section className="rounded-lg border border-zinc-800 bg-[var(--panel)]/40 p-4">
+        <section>
           <SectionLabel>Preview</SectionLabel>
-          <iframe title="preview" className="min-h-80 w-full rounded border border-zinc-800 bg-white" srcDoc={html} />
+          <MailFrame html={html} />
         </section>
       </div>
     </div>

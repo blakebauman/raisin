@@ -122,7 +122,7 @@ export default function TemplatesPage() {
       {list.length === 0 ? (
         <EmptyState title="No templates yet" hint="Create a draft, then edit and publish." />
       ) : (
-        <ul className="space-y-2">
+        <ul className="border-t border-[var(--border)]">
           {list.map((t) => (
             <li key={t.id} className="list-row">
               <div className="min-w-0">

@@ -221,7 +221,7 @@ export default function ContactDetailPage() {
         {segments.length === 0 ? (
           <EmptyState title="No segments yet" hint="Create segments from the contacts page." />
         ) : (
-          <ul className="space-y-2">
+          <ul className="border-t border-[var(--border)]">
             {segments.map((s) => {
               const on = memberIds.has(s.id);
               return (
@@ -247,7 +247,7 @@ export default function ContactDetailPage() {
         {contactTopics.length === 0 ? (
           <EmptyState title="No topics yet" hint="Create topics under Audience → Topics." />
         ) : (
-          <ul className="space-y-2">
+          <ul className="border-t border-[var(--border)]">
             {contactTopics.map((t) => (
               <li key={t.topic_id} className="list-row">
                 <span className="text-zinc-200">

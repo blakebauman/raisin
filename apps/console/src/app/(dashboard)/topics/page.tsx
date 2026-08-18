@@ -218,7 +218,7 @@ export default function TopicsPage() {
       {list.length === 0 ? (
         <EmptyState title="No topics yet" hint="Create a topic, then subscribe contacts to it." />
       ) : (
-        <ul className="max-w-2xl space-y-2">
+        <ul className="max-w-2xl border-t border-[var(--border)]">
           {list.map((t) => (
             <li key={t.id} className="list-row">
               <div className="min-w-0">

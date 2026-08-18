@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { EmptyState, Msg, PageHeader, SectionLabel, StatusChip } from "@/components/ui";
+import { EmptyState, LiveDot, Msg, PageHeader, StatusChip } from "@/components/ui";
 import { streamEmailEvents, type LiveEmailEvent } from "@/lib/events-stream";
+import { formatAbsolute, formatRelative } from "@/lib/format";
 
 function typeTone(type: string) {
   if (type.includes("bounce") || type.includes("fail") || type.includes("complain")) {
@@ -80,39 +81,25 @@ export default function ActivityPage() {
       <PageHeader
         title="Activity"
         description="Live delivery and engagement events for this team. Opens and clicks appear as soon as trackers fire."
-        actions={
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-wide ${
-              connected
-                ? "border-emerald-800/80 bg-emerald-950/40 text-emerald-300"
-                : "border-zinc-700 bg-zinc-900 text-zinc-500"
-            }`}
-          >
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-zinc-600"}`}
-            />
-            {connected ? "Live" : "Reconnecting"}
-          </span>
-        }
+        actions={<LiveDot live={connected} liveLabel="Live" idleLabel="Reconnecting" />}
       />
       <Msg tone="error">{error}</Msg>
 
-      <section className="mt-4 rounded-lg border border-zinc-800 bg-[var(--panel)]/70 p-5">
-        <SectionLabel>Event stream</SectionLabel>
+      <section>
         {events.length === 0 ? (
           <EmptyState
             title="Waiting for events"
-            hint="Send a message, then open or click it — events appear here in realtime."
+            hint="Send a message, then open or click it. Events appear here in realtime."
           />
         ) : (
-          <ul className="divide-y divide-zinc-800/80">
+          <ul className="border-t border-[var(--border)]">
             {events.map((ev) => {
               const eid = emailIdFrom(ev);
               return (
-                <li key={ev.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3 text-sm">
+                <li key={ev.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-[var(--border)] py-2.5 text-[13px]">
                   <span className={`font-mono text-xs ${typeTone(ev.type)}`}>{ev.type}</span>
-                  <span className="text-xs tabular-nums text-zinc-500">
-                    {ev.created_at ? new Date(ev.created_at).toLocaleString() : "—"}
+                  <span className="text-[12px] tabular-nums text-[var(--muted)]" title={formatAbsolute(ev.created_at)}>
+                    {formatRelative(ev.created_at)}
                   </span>
                   {eid ? (
                     <Link

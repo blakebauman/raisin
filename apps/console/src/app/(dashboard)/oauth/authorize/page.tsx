@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
-import { Msg, PageHeader, SectionLabel } from "@/components/ui";
+import { Msg, PageHeader, PropertyRow } from "@/components/ui";
 
 type PublicApp = {
   name: string;
@@ -74,14 +74,20 @@ export default function OAuthAuthorizePage() {
         description={`${app.name} wants access to your Raisin team.`}
       />
 
-      <div className="mb-6 rounded-lg border border-zinc-800 bg-[var(--panel)]/50 p-4">
-        <SectionLabel>Scopes</SectionLabel>
-        <ul className="space-y-1 font-mono text-sm text-zinc-300">
+      <div className="mb-6">
+        <div className="mb-2 text-[13px] text-[var(--muted)]">Scopes</div>
+        <ul className="mb-3 font-mono text-[13px] text-zinc-300">
           {requestedScopes.map((s) => (
-            <li key={s}>{s}</li>
+            <li key={s} className="border-t border-[var(--border)] py-1.5 first:border-t-0">
+              {s}
+            </li>
           ))}
         </ul>
-        <div className="mt-4 break-all text-xs text-zinc-500">Redirect: {redirectURI}</div>
+        <dl>
+          <PropertyRow label="Redirect">
+            <span className="break-all text-[12px] text-[var(--muted)]">{redirectURI || "—"}</span>
+          </PropertyRow>
+        </dl>
       </div>
 
       <Msg tone="error">{error}</Msg>

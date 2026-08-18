@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
-import { EmptyState, Field, FormPanel, Msg, PageHeader, StatusChip } from "@/components/ui";
+import { EmptyState, Field, FormPanel, Msg, PageHeader, StatusChip, TableSkeleton } from "@/components/ui";
+import { formatAbsolute, formatRelative } from "@/lib/format";
 
 type Email = {
   id: string;
@@ -15,7 +16,7 @@ type Email = {
 };
 
 export default function EmailsPage() {
-  const [emails, setEmails] = useState<Email[]>([]);
+  const [emails, setEmails] = useState<Email[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [from, setFrom] = useState("Acme <hello@acme.test>");
   const [to, setTo] = useState("you@example.com");
@@ -29,7 +30,7 @@ export default function EmailsPage() {
   const load = useCallback(async (c?: string | null, append = false) => {
     const q = c ? `?cursor=${encodeURIComponent(c)}` : "";
     const res = await apiFetch<{ data: Email[]; next_cursor?: string }>(`/emails${q}`);
-    setEmails((prev) => (append ? [...prev, ...(res.data ?? [])] : res.data ?? []));
+    setEmails((prev) => (append ? [...(prev ?? []), ...(res.data ?? [])] : res.data ?? []));
     setNextCursor(res.next_cursor ?? null);
   }, []);
 
@@ -131,7 +132,9 @@ export default function EmailsPage() {
 
       <Msg tone={msgTone}>{msg}</Msg>
 
-      {emails.length === 0 ? (
+      {emails === null ? (
+        <TableSkeleton />
+      ) : emails.length === 0 ? (
         <EmptyState title="No emails yet" hint="Compose a send, or hit the API with your team key." />
       ) : (
         <div className="data-table">
@@ -152,11 +155,13 @@ export default function EmailsPage() {
                       {e.subject || "(no subject)"}
                     </Link>
                   </td>
-                  <td className="text-zinc-400">{e.to?.join(", ")}</td>
+                  <td className="text-[var(--muted)]">{e.to?.join(", ")}</td>
                   <td>
                     <StatusChip status={e.status} />
                   </td>
-                  <td className="tabular-nums text-zinc-500">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="tabular-nums text-[var(--muted)]" title={formatAbsolute(e.created_at)}>
+                    {formatRelative(e.created_at)}
+                  </td>
                 </tr>
               ))}
             </tbody>

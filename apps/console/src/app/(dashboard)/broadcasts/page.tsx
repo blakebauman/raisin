@@ -219,7 +219,7 @@ export default function BroadcastsPage() {
       {list.length === 0 ? (
         <EmptyState title="No broadcasts yet" hint="Create a draft, then send or schedule it." />
       ) : (
-        <ul className="space-y-2">
+        <ul className="border-t border-[var(--border)]">
           {list.map((b) => (
             <li key={b.id} className="list-row">
               <div className="min-w-0">

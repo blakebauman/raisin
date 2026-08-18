@@ -51,9 +51,9 @@ export default function SettingsPage() {
       <PageHeader title="Settings" description="Team profile, billing, and workspace options." />
       <Msg tone="error">{msg}</Msg>
 
-      <section className="mb-6 max-w-lg rounded-lg border border-zinc-800 bg-[var(--panel)]/70 p-5">
+      <section className="mb-8 max-w-lg">
         <SectionLabel>Sending mode</SectionLabel>
-        <p className="text-sm text-zinc-400">
+        <p className="text-[13px] text-[var(--muted)]">
           Test mode allows sends without a verified domain. Turn it off for production.
         </p>
         {team && (
@@ -79,10 +79,10 @@ export default function SettingsPage() {
         )}
       </section>
 
-      <section className="max-w-lg rounded-lg border border-zinc-800 bg-[var(--panel)]/70 p-5">
+      <section className="max-w-lg border-t border-[var(--border)] pt-6">
         <SectionLabel>Billing</SectionLabel>
         {usage && (
-          <p className="text-sm text-zinc-400">
+          <p className="text-[13px] text-[var(--muted)]">
             {usage.emails_sent}/{usage.quota} this period · {usage.billing_status}
           </p>
         )}

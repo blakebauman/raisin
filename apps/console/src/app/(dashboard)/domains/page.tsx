@@ -196,12 +196,12 @@ export default function DomainsPage() {
       >
         {msg}
       </Msg>
-      <div className="space-y-4">
+      <div>
         {domains.length === 0 ? (
           <EmptyState title="No domains yet" hint="Add a domain, then verify DNS before sending in production." />
         ) : (
           domains.map((d) => (
-          <div key={d.id} className="rounded-lg border border-zinc-800 bg-[var(--panel)]/70 p-5">
+          <div key={d.id} className="border-t border-[var(--border)] py-4">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -261,7 +261,7 @@ export default function DomainsPage() {
               <label className="inline-flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
-                  className="rounded border-zinc-600"
+                  className="rounded-sm border-zinc-600"
                   checked={d.open_tracking ?? true}
                   disabled={busy === d.id}
                   onChange={() => toggleTracking(d, "open_tracking")}
@@ -271,7 +271,7 @@ export default function DomainsPage() {
               <label className="inline-flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
-                  className="rounded border-zinc-600"
+                  className="rounded-sm border-zinc-600"
                   checked={d.click_tracking ?? true}
                   disabled={busy === d.id}
                   onChange={() => toggleTracking(d, "click_tracking")}
@@ -281,7 +281,7 @@ export default function DomainsPage() {
               <label className="inline-flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
-                  className="rounded border-zinc-600"
+                  className="rounded-sm border-zinc-600"
                   checked={d.receiving_enabled ?? false}
                   disabled={busy === d.id || d.status !== "verified"}
                   onChange={() => setReceiving(d, !(d.receiving_enabled ?? false))}
@@ -304,7 +304,7 @@ export default function DomainsPage() {
                   </thead>
                   <tbody className="font-mono text-zinc-300">
                     {d.records.map((r, i) => (
-                      <tr key={i} className="border-t border-zinc-800/60">
+                      <tr key={i} className="border-t border-[var(--border)]">
                         <td className="py-2 pr-3 text-zinc-500">{r.record}</td>
                         <td className="py-2 pr-3">{r.type}</td>
                         <td className="py-2 pr-3">{r.name}</td>

@@ -1,15 +1,10 @@
-import { Sidebar } from "@/components/sidebar";
 import { AuthGuard } from "@/components/auth-guard";
+import { Shell } from "@/components/shell";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <main className="flex-1 overflow-auto">
-          <div className="mx-auto max-w-6xl px-8 py-8">{children}</div>
-        </main>
-      </div>
+      <Shell>{children}</Shell>
     </AuthGuard>
   );
 }

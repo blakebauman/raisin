@@ -243,9 +243,9 @@ export default function AutomationsPage() {
             </select>
           </Field>
 
-          <div className="space-y-3 rounded-lg border border-zinc-800 p-3">
+          <div className="space-y-3 rounded-2xl border border-[var(--border)] p-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">Steps</span>
+              <span className="text-[13px] font-medium text-zinc-300">Steps</span>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -264,7 +264,7 @@ export default function AutomationsPage() {
               </div>
             </div>
             {steps.map((s, i) => (
-              <div key={i} className="grid gap-2 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
+              <div key={i} className="grid gap-2 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <select
                     className="field w-auto"
@@ -343,9 +343,9 @@ export default function AutomationsPage() {
       {list.length === 0 ? (
         <EmptyState title="No automations yet" hint="Create a workflow from a contact or email event." />
       ) : (
-      <ul className="space-y-2">
+      <ul className="border-t border-[var(--border)]">
         {list.map((a) => (
-          <li key={a.id} className="rounded-lg border border-zinc-800 px-4 py-3 text-sm">
+          <li key={a.id} className="border-b border-[var(--border)] py-3 text-[13px]">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
@@ -404,7 +404,7 @@ export default function AutomationsPage() {
               </div>
             </div>
             {runsFor === a.id && (
-              <div className="mt-3 border-t border-zinc-800 pt-3">
+              <div className="mt-3 border-t border-[var(--border)] pt-3">
                 {runs.length === 0 ? (
                   <p className="text-xs text-zinc-500">No runs yet.</p>
                 ) : (

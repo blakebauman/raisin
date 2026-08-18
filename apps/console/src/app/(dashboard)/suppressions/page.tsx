@@ -146,7 +146,7 @@ export default function SuppressionsPage() {
       {list.length === 0 ? (
         <EmptyState title="No suppressions" hint="Add addresses that must never be sent to." />
       ) : (
-        <ul className="space-y-2">
+        <ul className="border-t border-[var(--border)]">
           {list.map((s) => (
             <li key={s.id} className="list-row">
               <div className="min-w-0">

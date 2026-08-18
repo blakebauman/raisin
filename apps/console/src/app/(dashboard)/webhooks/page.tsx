@@ -170,7 +170,7 @@ export default function WebhooksPage() {
       {list.length === 0 ? (
         <EmptyState title="No webhooks yet" hint="Add an HTTPS endpoint to receive delivery events." />
       ) : (
-        <ul className="mb-10 space-y-2">
+        <ul className="mb-10 border-t border-[var(--border)]">
           {list.map((w) => (
             <li key={w.id} className="list-row items-start">
               <button type="button" className="min-w-0 flex-1 text-left" onClick={() => loadEvents(w.id)}>
@@ -209,9 +209,9 @@ export default function WebhooksPage() {
           {events.length === 0 ? (
             <EmptyState title="No events yet" hint="Events appear after Raisin delivers to this endpoint." />
           ) : (
-            <ul className="space-y-2">
+            <ul className="border-t border-[var(--border)]">
               {events.map((ev) => (
-                <li key={ev.id} className="rounded-lg border border-zinc-800 px-4 py-3 text-sm">
+                <li key={ev.id} className="border-b border-[var(--border)] py-2.5 text-[13px]">
                   <button
                     type="button"
                     className="w-full text-left"
@@ -225,7 +225,7 @@ export default function WebhooksPage() {
                     </div>
                   </button>
                   {selectedEvent === ev.id && attempts.length > 0 && (
-                    <ul className="mt-3 space-y-1 border-t border-zinc-800 pt-3 text-xs text-zinc-400">
+                    <ul className="mt-3 space-y-1 border-t border-[var(--border)] pt-3 text-[12px] text-[var(--muted)]">
                       {attempts.map((a) => (
                         <li key={a.id} className="flex justify-between gap-2">
                           <span>

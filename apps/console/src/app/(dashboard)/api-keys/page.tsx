@@ -90,7 +90,7 @@ export default function ApiKeysPage() {
       {keys.length === 0 ? (
         <EmptyState title="No API keys yet" hint="Create a key to send mail from your app." />
       ) : (
-        <ul className="space-y-2">
+        <ul className="border-t border-[var(--border)]">
           {keys.map((k) => (
             <li key={k.id} className="list-row">
               <div className="min-w-0">

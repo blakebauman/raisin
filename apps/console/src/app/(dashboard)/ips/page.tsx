@@ -139,9 +139,9 @@ export default function IPsPage() {
       {list.length === 0 ? (
         <EmptyState title="No IP pools" hint="Request a dedicated pool when you need warmed sending IPs." />
       ) : (
-      <ul className="space-y-3">
+      <ul className="border-t border-[var(--border)]">
         {list.map((p) => (
-          <li key={p.id} className="rounded-lg border border-zinc-800 px-4 py-3 text-sm">
+          <li key={p.id} className="border-b border-[var(--border)] py-3 text-[13px]">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">

@@ -247,14 +247,14 @@ export default function ContactsPage() {
           {(properties.length > 0 || segments.length > 0) && (
             <div className="flex flex-wrap gap-2">
               {segments.map((s) => (
-                <span key={s.id} className="rounded-md border border-zinc-800 px-2.5 py-1 text-xs text-zinc-400">
+                <span key={s.id} className="rounded-full border border-zinc-800 px-2.5 py-1 text-xs text-zinc-400">
                   Segment · {s.name}
                 </span>
               ))}
               {properties.map((p) => (
                 <span
                   key={p.id}
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-800 px-2.5 py-1 text-xs text-zinc-300"
+                  className="inline-flex items-center gap-2 rounded-full border border-zinc-800 px-2.5 py-1 text-xs text-zinc-300"
                 >
                   {p.key} · {p.type}
                   <button type="button" onClick={() => removeProperty(p.id)} className="text-red-400 hover:underline">
@@ -275,7 +275,7 @@ export default function ContactsPage() {
       {list.length === 0 ? (
         <EmptyState title="No contacts yet" hint="Add an email above, or create contacts via the API." />
       ) : (
-        <ul className="space-y-1.5">
+        <ul className="border-t border-[var(--border)]">
           {list.map((c) => (
             <li key={c.id} className="list-row">
               <Link href={`/contacts/${c.id}`} className="min-w-0 hover:text-orange-400">

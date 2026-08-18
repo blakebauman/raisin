@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn, signUp } from "@/lib/auth-client";
+import { Field, WorkspaceMark } from "@/components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -83,76 +85,88 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-md rounded-xl border border-zinc-800 bg-[var(--panel)]/95 p-8 shadow-2xl shadow-black/40"
-      >
-        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">raisin.run</p>
-        <h1 className="mt-2 font-[family-name:var(--font-display)] text-4xl tracking-tight text-zinc-50">
-          Console
-        </h1>
-        <p className="mt-2 text-sm text-zinc-500">
-          {mode === "signin" ? "Sign in to manage email for your team." : "Create an account for this workspace."}
-        </p>
+    <div className="relative flex min-h-dvh flex-col">
+      <header className="flex h-14 items-center px-5">
+        <Link href="/" className="flex items-center gap-2">
+          <WorkspaceMark />
+          <span className="text-[13px] font-medium text-zinc-50">Raisin</span>
+        </Link>
+      </header>
 
-        <div className="mt-8 space-y-4">
-          {mode === "signup" && (
-            <div>
-              <label className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">Name</label>
-              <input className="field" value={name} onChange={(e) => setName(e.target.value)} required />
+      <main className="flex flex-1 items-center justify-center px-5 pb-24">
+        <form onSubmit={onSubmit} className="w-full max-w-[360px]">
+          <h1 className="text-[22px] font-medium tracking-tight text-zinc-50">
+            {mode === "signin" ? "Sign in to Raisin" : "Create a Raisin account"}
+          </h1>
+          <p className="mt-1.5 text-[13px] text-[var(--muted)]">
+            {mode === "signin"
+              ? "Use your workspace email to manage sending."
+              : "A local account for this console workspace."}
+          </p>
+
+          <div className="mt-8 grid gap-3">
+            {mode === "signup" && (
+              <Field label="Name" htmlFor="name">
+                <input
+                  id="name"
+                  className="field w-full"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </Field>
+            )}
+            <Field label="Email" htmlFor="email">
+              <input
+                id="email"
+                className="field w-full"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                required
+              />
+            </Field>
+            <Field label="Password" htmlFor="password">
+              <input
+                id="password"
+                className="field w-full"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                minLength={8}
+                required
+              />
+            </Field>
+          </div>
+
+          {error && <p className="mt-3 text-[13px] text-red-400">{error}</p>}
+
+          <button type="submit" disabled={loading} className="btn-primary mt-6 h-8 w-full">
+            {loading ? "Signing in…" : mode === "signin" ? "Sign in" : "Create account"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+            className="mt-4 w-full text-[13px] text-[var(--muted)] hover:text-zinc-200"
+          >
+            {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
+          </button>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-[var(--border)]" />
             </div>
-          )}
-          <div>
-            <label className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">Email</label>
-            <input
-              className="field"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              required
-            />
+            <div className="relative flex justify-center text-[12px]">
+              <span className="bg-[var(--background)] px-2 text-[var(--muted-2)]">local</span>
+            </div>
           </div>
-          <div>
-            <label className="mb-1.5 block text-xs uppercase tracking-wider text-zinc-500">Password</label>
-            <input
-              className="field"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              minLength={8}
-              required
-            />
-          </div>
-        </div>
 
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
-
-        <button type="submit" disabled={loading} className="btn-primary mt-6 w-full py-2.5">
-          {loading ? "…" : mode === "signin" ? "Sign in" : "Create account"}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-          className="mt-4 w-full text-sm text-zinc-400 hover:text-zinc-200"
-        >
-          {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
-        </button>
-
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-zinc-800" />
-          </div>
-          <div className="relative flex justify-center text-[11px] uppercase tracking-wider">
-            <span className="bg-[var(--panel)] px-2 text-zinc-600">local</span>
-          </div>
-        </div>
-
-        <button type="button" onClick={demoSkip} disabled={loading} className="btn-ghost w-full text-xs text-zinc-500">
-          Continue with seeded demo team
-        </button>
-      </form>
+          <button type="button" onClick={demoSkip} disabled={loading} className="btn-ghost w-full">
+            Continue with seeded demo team
+          </button>
+        </form>
+      </main>
     </div>
   );
 }
